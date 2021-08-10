@@ -1,10 +1,11 @@
+use std::str::Chars;
 use std::string::String;
 
 use phf::phf_map;
 
-use crate::scanner::ScannerError::{BadCharacter, UnclosedString};
+use crate::scanner::ScannerError::{BadCharacter, NumberParsing, UnclosedString};
 use crate::tokens::TokenType::*;
-use crate::tokens::{Token, TokenType};
+use crate::tokens::{Location, Token, TokenType};
 
 static KEYWORDS: phf::Map<&'static str, TokenType> = phf_map! {
     "and" => And,
@@ -28,259 +29,265 @@ static KEYWORDS: phf::Map<&'static str, TokenType> = phf_map! {
 #[derive(Debug, PartialEq)]
 pub enum ScannerError {
     UnclosedString,
-    BadCharacter { line: usize, start: usize },
+    BadCharacter(Location),
+    NumberParsing(Location),
 }
 
-struct Scanner {
-    tokens: Vec<Token>,
-    errors: Vec<ScannerError>,
-    source: String,
-    start: usize,
-    current: usize,
-    line: usize,
-    column: usize,
-}
+mod hidden {
+    use crate::tokens::Location;
+    use itertools::{multipeek, MultiPeek};
+    use std::str::Chars;
 
-impl Scanner {
-    fn new(source: String) -> Self {
-        Scanner {
-            tokens: Vec::new(),
-            errors: Vec::new(),
-            source,
-            start: 0,
-            current: 0,
-            line: 1,
-            column: 1,
+    // based on https://github.com/toyboot4e/loxrs/blob/master/loxrs_treewalk/src/lexer/scanner.rs
+    pub struct CharReader<I>
+    where
+        I: Iterator<Item = char>,
+    {
+        src: MultiPeek<I>,
+        location: Location,
+        lexeme: String,
+    }
+
+    impl<'a> CharReader<Chars<'a>> {
+        pub fn new(src: &'a str) -> Self {
+            CharReader {
+                src: multipeek(src.chars()),
+                location: Location::initial(),
+                lexeme: String::new(),
+            }
         }
     }
 
-    fn is_at_end(&self) -> bool {
-        self.current >= self.source.chars().count()
-    }
-
-    fn scan_token(&mut self) {
-        let c = self.advance();
-        match c {
-            '(' => self.add_token(LeftParen),
-            ')' => self.add_token(RightParen),
-            '{' => self.add_token(LeftBrace),
-            '}' => self.add_token(RightBrace),
-            ',' => self.add_token(Comma),
-            '.' => self.add_token(Dot),
-            '-' => self.add_token(Minus),
-            '+' => self.add_token(Plus),
-            ';' => self.add_token(Semicolon),
-            '*' => self.add_token(Star),
-            '!' => {
-                let token_type = if self.next_char_matches('=') {
-                    BangEqual
-                } else {
-                    Bang
-                };
-                self.add_token(token_type);
-            }
-            '=' => {
-                let token_type = if self.next_char_matches('=') {
-                    EqualEqual
-                } else {
-                    Equal
-                };
-                self.add_token(token_type);
-            }
-            '<' => {
-                let token_type = if self.next_char_matches('=') {
-                    LessEqual
-                } else {
-                    Less
-                };
-                self.add_token(token_type);
-            }
-            '>' => {
-                let token_type = if self.next_char_matches('=') {
-                    GreaterEqual
-                } else {
-                    Greater
-                };
-                self.add_token(token_type);
-            }
-            '/' => {
-                if self.next_char_matches('/') {
-                    while self.peek() != '\n' && !self.is_at_end() {
-                        self.advance();
+    impl<I> Iterator for CharReader<I>
+    where
+        I: Iterator<Item = char>,
+    {
+        type Item = char;
+        fn next(&mut self) -> Option<char> {
+            let next = self.src.next();
+            if let Some(c) = next {
+                self.lexeme.push(c);
+                match c {
+                    '\n' => {
+                        self.location.increment_line();
+                        self.location.reset_column();
                     }
-                } else {
-                    self.add_token(Slash);
-                }
+                    _ => {
+                        self.location.increment_column();
+                    }
+                };
             }
-            // Ignore whitespace
-            ' ' | '\r' | '\t' => {}
-            // Newline
-            '\n' => self.advance_line(),
-            // String
-            '"' => self.string(),
-            // Default
-            c => {
-                if c.is_ascii_digit() {
-                    self.number()
-                } else if c.is_ascii_alphabetic() || c == '_' {
-                    self.identifier()
-                } else {
-                    self.add_error(BadCharacter {
-                        line: self.line,
-                        start: self.start,
-                    })
-                }
-            }
+            next
         }
     }
 
-    fn advance_line(&mut self) {
-        self.line += 1;
-        self.column = 1;
+    impl<I> CharReader<I>
+    where
+        I: Iterator<Item = char>,
+    {
+        pub fn location(&self) -> Location {
+            self.location
+        }
+
+        pub fn lexeme(&self) -> &str {
+            &self.lexeme
+        }
+
+        pub fn peek(&mut self) -> Option<&char> {
+            self.src.reset_peek();
+            self.src.peek()
+        }
+
+        pub fn peek_next(&mut self) -> Option<&char> {
+            self.src.reset_peek();
+            self.src.peek();
+            self.src.peek()
+        }
+
+        pub fn clear_lexeme(&mut self) {
+            self.lexeme.clear();
+        }
+
+        /// Returns true if the expected char was consumed
+        pub fn consume_char(&mut self, expected: char) -> bool {
+            if Some(&expected) == self.peek() {
+                self.next();
+                true
+            } else {
+                false
+            }
+        }
+
+        /// Advances while the peek matches `predicate`; peeks char by char
+        pub fn advance_while<P>(&mut self, predicate: P) -> bool
+        where
+            P: Fn(char) -> bool,
+        {
+            while let Some(&c) = self.peek() {
+                if !predicate(c) {
+                    return true;
+                }
+                self.next();
+            }
+            return false;
+        }
+    }
+}
+
+type Result<T> = std::result::Result<T, ScannerError>;
+
+use self::hidden::CharReader;
+
+struct Scanner<'a> {
+    char_reader: CharReader<Chars<'a>>,
+}
+
+impl<'a> Scanner<'a> {
+    fn new(src: &'a str) -> Self {
+        Self {
+            char_reader: CharReader::new(src),
+        }
+    }
+
+    fn scan_token(&mut self) -> Result<Option<Token>> {
+        loop {
+            self.char_reader.clear_lexeme();
+            let start_location = self.char_reader.location();
+
+            let c = if let Some(c) = self.char_reader.next() {
+                c
+            } else {
+                return Ok(None);
+            };
+
+            let token_type = match c {
+                '(' => LeftParen,
+                ')' => RightParen,
+                '{' => LeftBrace,
+                '}' => RightBrace,
+                ',' => Comma,
+                '.' => Dot,
+                '-' => Minus,
+                '+' => Plus,
+                ';' => Semicolon,
+                '*' => Star,
+                '!' => self.compare_next_char('=', BangEqual, Bang),
+                '=' => self.compare_next_char('=', EqualEqual, Equal),
+                '<' => self.compare_next_char('=', LessEqual, Less),
+                '>' => self.compare_next_char('=', GreaterEqual, Greater),
+                '/' => match self.handle_slash() {
+                    None => continue,
+                    Some(token_type) => token_type,
+                },
+                // Ignore whitespace
+                ' ' | '\r' | '\t' | '\n' => continue,
+                // String
+                '"' => self.string()?,
+                // Default
+                c if c.is_ascii_digit() => self.number()?,
+                c if c.is_ascii_alphabetic() || c == '_' => self.identifier(),
+                _ => return Err(BadCharacter(self.char_reader.location())),
+            };
+
+            return Ok(Some(Token {
+                token_type,
+                lexeme: self.char_reader.lexeme().to_string(),
+                location: start_location,
+            }));
+        }
+    }
+
+    fn compare_next_char(
+        &mut self,
+        expected: char,
+        if_true: TokenType,
+        if_false: TokenType,
+    ) -> TokenType {
+        if self.char_reader.consume_char(expected) {
+            if_true
+        } else {
+            if_false
+        }
     }
 
     fn can_be_identifier(c: char) -> bool {
         c.is_ascii_alphanumeric() || c == '_'
     }
 
-    fn identifier(&mut self) {
-        while Self::can_be_identifier(self.peek()) {
-            self.advance();
-        }
-
-        let text = self.source_substring(self.start, self.current);
-        let token_type = KEYWORDS.get(&text);
-        if let Some(token_type) = token_type {
-            self.add_token(token_type.clone());
+    // TODO range comments
+    fn handle_slash(&mut self) -> Option<TokenType> {
+        if self.char_reader.consume_char('/') {
+            self.char_reader.advance_while(|c| c != '\n');
+            None
         } else {
-            self.add_token(Identifier(text));
+            Some(Slash)
         }
     }
 
-    fn number(&mut self) {
-        while self.peek().is_ascii_digit() {
-            self.advance();
-        }
-        // Look for a fractional part.
-        if self.peek() == '.' && self.peek_next().is_ascii_digit() {
-            // Consume the "."
-            self.advance();
+    fn identifier(&mut self) -> TokenType {
+        self.char_reader.advance_while(Self::can_be_identifier);
 
-            while self.peek().is_ascii_digit() {
-                self.advance();
-            }
+        let text = self.char_reader.lexeme();
+        KEYWORDS
+            .get(text)
+            .cloned()
+            .unwrap_or(Identifier(text.to_string()))
+    }
+
+    fn number(&mut self) -> Result<TokenType> {
+        self.char_reader.advance_while(|c| c.is_ascii_digit());
+        if self.char_reader.consume_char('.') {
+            self.char_reader.advance_while(|c| c.is_ascii_digit());
         }
 
-        let number = self
-            .source_substring(self.start, self.current)
+        self.char_reader
+            .lexeme()
             .parse()
-            .unwrap();
-
-        self.add_token(Number(number));
+            .map_err(|_| NumberParsing(self.char_reader.location()))
+            .map(Number)
     }
 
-    fn string(&mut self) {
-        while !self.is_at_end() && self.peek() != '"' {
-            if self.peek() == '\n' {
-                self.advance_line();
+    fn string(&mut self) -> Result<TokenType> {
+        loop {
+            match self.char_reader.next() {
+                None => return Err(UnclosedString),
+                Some('"') => {
+                    return Ok(String(
+                        self.char_reader
+                            .lexeme()
+                            .chars()
+                            .skip(1)
+                            .take(self.char_reader.lexeme().len() - 2)
+                            .collect(),
+                    ))
+                }
+                _ => continue,
             }
-            self.advance();
         }
-
-        if self.is_at_end() {
-            self.add_error(UnclosedString);
-            return;
-        }
-
-        // Consume the closing quote
-        self.advance();
-
-        let literal = self.source_substring(self.start + 1, self.current - 1);
-        self.add_token(String(literal));
-    }
-
-    fn peek(&self) -> char {
-        if self.is_at_end() {
-            return '\0';
-        }
-        self.source_char(self.current)
-    }
-
-    fn peek_next(&self) -> char {
-        if self.current + 1 >= self.source.chars().count() {
-            return '\0';
-        }
-        self.source_char(self.current + 1)
-    }
-
-    fn source_char(&self, nth: usize) -> char {
-        self.source.chars().nth(nth).unwrap()
-    }
-
-    fn source_substring(&self, start: usize, end: usize) -> String {
-        self.source.chars().skip(start).take(end - start).collect()
-    }
-
-    fn next_char_matches(&mut self, expected: char) -> bool {
-        if self.is_at_end() {
-            return false;
-        }
-        if self.source_char(self.current) != expected {
-            return false;
-        }
-        self.current += 1;
-        true
-    }
-
-    fn add_token(&mut self, token_type: TokenType) {
-        let lexeme = self.source_substring(self.start, self.current);
-        let lexeme_length = lexeme.chars().count();
-        let token = Token {
-            token_type,
-            lexeme,
-            line: self.line,
-            column: self.column - lexeme_length,
-        };
-        self.tokens.push(token)
-    }
-
-    fn add_error(&mut self, error_type: ScannerError) {
-        self.errors.push(error_type)
-    }
-
-    fn advance(&mut self) -> char {
-        let char = self.source_char(self.current);
-        self.current += 1;
-        self.column += 1;
-        char
     }
 }
 
 pub fn scan_tokens(source: String) -> (Vec<Token>, Vec<ScannerError>) {
-    let mut scanner = Scanner::new(source);
-
-    while !scanner.is_at_end() {
-        // We are at the beginning of the next lexeme.
-        scanner.start = scanner.current;
-        scanner.scan_token()
+    let mut scanner = Scanner::new(&*source);
+    let mut tokens = Vec::new();
+    let mut errors = Vec::new();
+    loop {
+        match scanner.scan_token() {
+            Ok(Some(token)) => tokens.push(token),
+            Err(error) => errors.push(error),
+            Ok(None) => break,
+        }
     }
 
-    let eof: Token = Token {
-        token_type: EOF,
-        lexeme: "".to_string(),
-        line: scanner.line,
-        column: 1,
-    };
-    scanner.tokens.push(eof);
-    (scanner.tokens, scanner.errors)
+    (tokens, errors)
 }
 
 #[cfg(test)]
 mod tests {
     use crate::scanner::scan_tokens;
     use crate::scanner::ScannerError::UnclosedString;
-    use crate::tokens::Token;
     use crate::tokens::TokenType::*;
+    use crate::tokens::{Location, Token};
 
     #[test]
     fn simple_test() {
@@ -292,238 +299,134 @@ if (true or false) { print _how_are_you; }
 
         let (tokens, errors) = scan_tokens(SOURCE.to_string());
         assert!(errors.is_empty());
-        let mut tokens_iter = tokens.iter();
-        assert_eq!(
-            Some(&Token {
+
+        let expected_tokens = vec![
+            Token {
                 token_type: Var,
                 lexeme: "var".to_string(),
-                line: 1,
-                column: 1
-            }),
-            tokens_iter.next()
-        );
-        assert_eq!(
-            Some(&Token {
+                location: Location::new(1, 1),
+            },
+            Token {
                 token_type: Identifier("_how_are_you".to_string()),
                 lexeme: "_how_are_you".to_string(),
-                line: 1,
-                column: 5
-            }),
-            tokens_iter.next()
-        );
-        assert_eq!(
-            Some(&Token {
+                location: Location::new(1, 5),
+            },
+            Token {
                 token_type: Equal,
                 lexeme: "=".to_string(),
-                line: 1,
-                column: 18
-            }),
-            tokens_iter.next()
-        );
-        assert_eq!(
-            Some(&Token {
+                location: Location::new(1, 18),
+            },
+            Token {
                 token_type: String("good".to_string()),
                 lexeme: "\"good\"".to_string(),
-                line: 1,
-                column: 20
-            }),
-            tokens_iter.next()
-        );
-        assert_eq!(
-            Some(&Token {
+                location: Location::new(1, 20),
+            },
+            Token {
                 token_type: Semicolon,
                 lexeme: ";".to_string(),
-                line: 1,
-                column: 26
-            }),
-            tokens_iter.next()
-        );
-        assert_eq!(
-            Some(&Token {
+                location: Location::new(1, 26),
+            },
+            Token {
                 token_type: Var,
                 lexeme: "var".to_string(),
-                line: 3,
-                column: 1
-            }),
-            tokens_iter.next()
-        );
-        assert_eq!(
-            Some(&Token {
+                location: Location::new(3, 1),
+            },
+            Token {
                 token_type: Identifier("num".to_string()),
                 lexeme: "num".to_string(),
-                line: 3,
-                column: 11
-            }),
-            tokens_iter.next()
-        );
-        assert_eq!(
-            Some(&Token {
+                location: Location::new(3, 11),
+            },
+            Token {
                 token_type: Equal,
                 lexeme: "=".to_string(),
-                line: 3,
-                column: 15
-            }),
-            tokens_iter.next()
-        );
-        assert_eq!(
-            Some(&Token {
+                location: Location::new(3, 15),
+            },
+            Token {
                 token_type: Number(2.0),
                 lexeme: "2".to_string(),
-                line: 3,
-                column: 17
-            }),
-            tokens_iter.next()
-        );
-        assert_eq!(
-            Some(&Token {
+                location: Location::new(3, 17),
+            },
+            Token {
                 token_type: Plus,
                 lexeme: "+".to_string(),
-                line: 3,
-                column: 19
-            }),
-            tokens_iter.next()
-        );
-        assert_eq!(
-            Some(&Token {
+                location: Location::new(3, 19),
+            },
+            Token {
                 token_type: Number(3.14),
                 lexeme: "3.14".to_string(),
-                line: 3,
-                column: 21
-            }),
-            tokens_iter.next()
-        );
-        assert_eq!(
-            Some(&Token {
+                location: Location::new(3, 21),
+            },
+            Token {
                 token_type: Semicolon,
                 lexeme: ";".to_string(),
-                line: 3,
-                column: 25
-            }),
-            tokens_iter.next()
-        );
-        assert_eq!(
-            Some(&Token {
+                location: Location::new(3, 25),
+            },
+            Token {
                 token_type: If,
                 lexeme: "if".to_string(),
-                line: 4,
-                column: 1
-            }),
-            tokens_iter.next()
-        );
-        assert_eq!(
-            Some(&Token {
+                location: Location::new(4, 1),
+            },
+            Token {
                 token_type: LeftParen,
                 lexeme: "(".to_string(),
-                line: 4,
-                column: 4
-            }),
-            tokens_iter.next()
-        );
-        assert_eq!(
-            Some(&Token {
+                location: Location::new(4, 4),
+            },
+            Token {
                 token_type: True,
                 lexeme: "true".to_string(),
-                line: 4,
-                column: 5
-            }),
-            tokens_iter.next()
-        );
-        assert_eq!(
-            Some(&Token {
+                location: Location::new(4, 5),
+            },
+            Token {
                 token_type: Or,
                 lexeme: "or".to_string(),
-                line: 4,
-                column: 10
-            }),
-            tokens_iter.next()
-        );
-        assert_eq!(
-            Some(&Token {
+                location: Location::new(4, 10),
+            },
+            Token {
                 token_type: False,
                 lexeme: "false".to_string(),
-                line: 4,
-                column: 13
-            }),
-            tokens_iter.next()
-        );
-        assert_eq!(
-            Some(&Token {
+                location: Location::new(4, 13),
+            },
+            Token {
                 token_type: RightParen,
                 lexeme: ")".to_string(),
-                line: 4,
-                column: 18
-            }),
-            tokens_iter.next()
-        );
-        assert_eq!(
-            Some(&Token {
+                location: Location::new(4, 18),
+            },
+            Token {
                 token_type: LeftBrace,
                 lexeme: "{".to_string(),
-                line: 4,
-                column: 20
-            }),
-            tokens_iter.next()
-        );
-        assert_eq!(
-            Some(&Token {
+                location: Location::new(4, 20),
+            },
+            Token {
                 token_type: Print,
                 lexeme: "print".to_string(),
-                line: 4,
-                column: 22
-            }),
-            tokens_iter.next()
-        );
-        assert_eq!(
-            Some(&Token {
+                location: Location::new(4, 22),
+            },
+            Token {
                 token_type: Identifier("_how_are_you".to_string()),
                 lexeme: "_how_are_you".to_string(),
-                line: 4,
-                column: 28
-            }),
-            tokens_iter.next()
-        );
-        assert_eq!(
-            Some(&Token {
+                location: Location::new(4, 28),
+            },
+            Token {
                 token_type: Semicolon,
                 lexeme: ";".to_string(),
-                line: 4,
-                column: 40
-            }),
-            tokens_iter.next()
-        );
-        assert_eq!(
-            Some(&Token {
+                location: Location::new(4, 40),
+            },
+            Token {
                 token_type: RightBrace,
                 lexeme: "}".to_string(),
-                line: 4,
-                column: 42
-            }),
-            tokens_iter.next()
-        );
-        assert_eq!(
-            Some(&Token {
-                token_type: EOF,
-                lexeme: "".to_string(),
-                line: 5,
-                column: 1
-            }),
-            tokens_iter.next()
-        );
-        assert_eq!(None, tokens_iter.next());
+                location: Location::new(4, 42),
+            },
+        ];
+
+        for (expected, actual) in expected_tokens.iter().zip(tokens.iter()) {
+            assert_eq!(expected, actual);
+        }
     }
 
     #[test]
     fn unclosed_string() {
         let (tokens, errors) = scan_tokens("\"".to_string());
-        assert_eq!(
-            tokens,
-            vec![Token {
-                token_type: EOF,
-                lexeme: "".to_string(),
-                line: 1,
-                column: 1
-            }]
-        );
+        assert!(tokens.is_empty());
         assert_eq!(errors, vec![UnclosedString]);
     }
 }

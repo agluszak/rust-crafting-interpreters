@@ -1,8 +1,10 @@
+mod expr;
 mod interpreter;
+mod parser;
 mod scanner;
 mod tokens;
 
-use crate::interpreter::{Interpreter};
+use crate::interpreter::Interpreter;
 
 use std::env;
 use std::process::exit;
