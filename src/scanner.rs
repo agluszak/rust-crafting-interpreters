@@ -285,9 +285,10 @@ pub fn scan_tokens(source: String) -> (Vec<Token>, Vec<ScannerError>) {
 #[cfg(test)]
 mod tests {
     use crate::scanner::scan_tokens;
-    use crate::scanner::ScannerError::UnclosedString;
+    use crate::scanner::ScannerError::{BadCharacter, UnclosedString};
     use crate::tokens::TokenType::*;
     use crate::tokens::{Location, Token};
+    use itertools::zip;
 
     #[test]
     fn simple_test() {
@@ -418,7 +419,7 @@ if (true or false) { print _how_are_you; }
             },
         ];
 
-        for (expected, actual) in expected_tokens.iter().zip(tokens.iter()) {
+        for (expected, actual) in zip(expected_tokens, tokens) {
             assert_eq!(expected, actual);
         }
     }
@@ -428,5 +429,154 @@ if (true or false) { print _how_are_you; }
         let (tokens, errors) = scan_tokens("\"".to_string());
         assert!(tokens.is_empty());
         assert_eq!(errors, vec![UnclosedString]);
+    }
+
+    #[test]
+    fn nonsense_chars() {
+        let (tokens, errors) = scan_tokens("$#@qwerty if $* true".to_string());
+        let expected_tokens = vec![
+            Token {
+                token_type: Identifier("qwerty".to_string()),
+                lexeme: "qwerty".to_string(),
+                location: Location::new(1, 4),
+            },
+            Token {
+                token_type: If,
+                lexeme: "if".to_string(),
+                location: Location::new(1, 11),
+            },
+            Token {
+                token_type: Star,
+                lexeme: "*".to_string(),
+                location: Location::new(1, 15),
+            },
+            Token {
+                token_type: True,
+                lexeme: "true".to_string(),
+                location: Location::new(1, 17),
+            },
+        ];
+
+        let expected_errors = vec![
+            BadCharacter(Location::new(1, 2)),
+            BadCharacter(Location::new(1, 3)),
+            BadCharacter(Location::new(1, 4)),
+            BadCharacter(Location::new(1, 15)),
+        ];
+
+        for (expected, actual) in zip(expected_tokens, tokens) {
+            assert_eq!(expected, actual);
+        }
+
+        for (expected, actual) in zip(expected_errors, errors) {
+            assert_eq!(expected, actual);
+        }
+    }
+
+    #[test]
+    fn divide() {
+        static SOURCE: &str = r#"2 / 3 // comment
+/ / not_a_comment
+"#;
+        let (tokens, errors) = scan_tokens(SOURCE.to_string());
+        assert!(errors.is_empty());
+
+        let expected_tokens = vec![
+            Token {
+                token_type: Number(2.0),
+                lexeme: "2".to_string(),
+                location: Location::new(1, 1),
+            },
+            Token {
+                token_type: Slash,
+                lexeme: "/".to_string(),
+                location: Location::new(1, 3),
+            },
+            Token {
+                token_type: Number(3.0),
+                lexeme: "3".to_string(),
+                location: Location::new(1, 5),
+            },
+            Token {
+                token_type: Slash,
+                lexeme: "/".to_string(),
+                location: Location::new(2, 1),
+            },
+            Token {
+                token_type: Slash,
+                lexeme: "/".to_string(),
+                location: Location::new(2, 3),
+            },
+            Token {
+                token_type: Identifier("not_a_comment".to_string()),
+                lexeme: "not_a_comment".to_string(),
+                location: Location::new(2, 5),
+            },
+        ];
+
+        for (expected, actual) in zip(expected_tokens, tokens) {
+            assert_eq!(expected, actual);
+        }
+    }
+
+    #[test]
+    fn number_without_point() {
+        let (tokens, errors) = scan_tokens("5. 2 3.1 1".to_string());
+        assert!(errors.is_empty());
+
+        let expected_tokens = vec![
+            Token {
+                token_type: Number(5.0),
+                lexeme: "5.".to_string(),
+                location: Location::new(1, 1),
+            },
+            Token {
+                token_type: Number(2.0),
+                lexeme: "2".to_string(),
+                location: Location::new(1, 4),
+            },
+            Token {
+                token_type: Number(3.1),
+                lexeme: "3.1".to_string(),
+                location: Location::new(1, 6),
+            },
+            Token {
+                token_type: Number(1.0),
+                lexeme: "1".to_string(),
+                location: Location::new(1, 10),
+            },
+        ];
+
+        for (expected, actual) in zip(expected_tokens, tokens) {
+            assert_eq!(expected, actual);
+        }
+    }
+
+    #[test]
+    fn number_with_two_points() {
+        let (tokens, errors) = scan_tokens("3..14".to_string());
+        assert!(errors.is_empty());
+
+        let expected_tokens = vec![
+            Token {
+                token_type: Number(3.0),
+                lexeme: "3.".to_string(),
+                location: Location::new(1, 1),
+            },
+            Token {
+                token_type: Dot,
+                lexeme: ".".to_string(),
+                location: Location::new(1, 3),
+            },
+            Token {
+                token_type: Number(14.0),
+                lexeme: "14".to_string(),
+                location: Location::new(1, 4),
+            },
+        ];
+
+        for (expected, actual) in zip(expected_tokens, tokens) {
+            assert_eq!(expected, actual);
+        }
     }
 }
