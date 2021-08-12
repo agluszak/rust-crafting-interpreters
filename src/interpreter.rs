@@ -1,7 +1,8 @@
-use crate::scanner::{scan_tokens, ScannerError};
 use std::fs::read_to_string;
 use std::io;
 use std::io::BufRead;
+
+use crate::scanner::{scan_tokens, ScannerError};
 
 pub(crate) struct Interpreter {
     had_error: bool,

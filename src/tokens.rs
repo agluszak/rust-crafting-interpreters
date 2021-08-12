@@ -47,6 +47,13 @@ pub enum TokenType {
     While,
 }
 
+impl TokenType {
+    pub(crate) fn is_same_variant(&self, other: &Self) -> bool {
+        use std::mem::discriminant;
+        discriminant(self) == discriminant(other)
+    }
+}
+
 #[derive(Debug, PartialEq, Clone)]
 pub struct Token {
     pub token_type: TokenType,

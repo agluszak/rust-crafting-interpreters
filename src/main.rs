@@ -1,13 +1,13 @@
+use std::env;
+use std::process::exit;
+
+use crate::interpreter::Interpreter;
+
 mod expr;
 mod interpreter;
 mod parser;
 mod scanner;
 mod tokens;
-
-use crate::interpreter::Interpreter;
-
-use std::env;
-use std::process::exit;
 
 fn main() {
     let args: Vec<String> = env::args().collect();

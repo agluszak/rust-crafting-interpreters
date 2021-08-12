@@ -1,3 +1,4 @@
+#[derive(Debug, PartialEq)]
 pub enum Expr {
     Binary(Box<Expr>, BinaryOperator, Box<Expr>),
     Grouping(Box<Expr>),
@@ -6,6 +7,7 @@ pub enum Expr {
     Variable(String),
 }
 
+#[derive(Debug, PartialEq)]
 pub enum BinaryOperator {
     Add,
     Subtract,
@@ -21,11 +23,13 @@ pub enum BinaryOperator {
     Or,
 }
 
+#[derive(Debug, PartialEq)]
 pub enum UnaryOperator {
     BooleanNegate,
     NumericNegate,
 }
 
+#[derive(Debug, PartialEq)]
 pub enum Literal {
     String(String),
     Number(f64),

@@ -7,6 +7,8 @@ use crate::scanner::ScannerError::{BadCharacter, NumberParsing, UnclosedString};
 use crate::tokens::TokenType::*;
 use crate::tokens::{Location, Token, TokenType};
 
+use self::hidden::CharReader;
+
 static KEYWORDS: phf::Map<&'static str, TokenType> = phf_map! {
     "and" => And,
     "class" => Class,
@@ -34,9 +36,11 @@ pub enum ScannerError {
 }
 
 mod hidden {
-    use crate::tokens::Location;
-    use itertools::{multipeek, MultiPeek};
     use std::str::Chars;
+
+    use itertools::{multipeek, MultiPeek};
+
+    use crate::tokens::Location;
 
     // based on https://github.com/toyboot4e/loxrs/blob/master/loxrs_treewalk/src/lexer/scanner.rs
     pub struct CharReader<I>
@@ -135,8 +139,6 @@ mod hidden {
 }
 
 type Result<T> = std::result::Result<T, ScannerError>;
-
-use self::hidden::CharReader;
 
 struct Scanner<'a> {
     char_reader: CharReader<Chars<'a>>,
@@ -259,7 +261,7 @@ impl<'a> Scanner<'a> {
                             .skip(1)
                             .take(self.char_reader.lexeme().len() - 2)
                             .collect(),
-                    ))
+                    ));
                 }
                 _ => continue,
             }
@@ -284,11 +286,12 @@ pub fn scan_tokens(source: String) -> (Vec<Token>, Vec<ScannerError>) {
 
 #[cfg(test)]
 mod tests {
+    use itertools::zip;
+
     use crate::scanner::scan_tokens;
     use crate::scanner::ScannerError::{BadCharacter, UnclosedString};
     use crate::tokens::TokenType::*;
     use crate::tokens::{Location, Token};
-    use itertools::zip;
 
     #[test]
     fn simple_test() {
