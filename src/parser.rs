@@ -7,7 +7,7 @@ use crate::expr::Literal::{Boolean, Number, String};
 use crate::expr::UnaryOperator::{BooleanNegate, NumericNegate};
 use crate::expr::{BinaryOperator, Expr, Literal, UnaryOperator};
 use crate::parser::ParserError::{MissingExpectedToken, UnexpectedEOF};
-use crate::tokens::{Token, TokenType};
+use crate::token::{Token, TokenType};
 
 #[derive(Debug, PartialEq)]
 pub enum ParserError {
@@ -151,11 +151,6 @@ where
         higher_precedence_parser(self)
     }
 
-    pub fn parse(tokens: Iter<'a, Token>) -> Result<Box<Expr>> {
-        let mut parser = Parser::new(tokens);
-        parser.expression()
-    }
-
     fn expression(&mut self) -> Result<Box<Expr>> {
         self.equality()
     }
@@ -212,6 +207,11 @@ where
     }
 }
 
+pub fn parse(tokens: Iter<Token>) -> Result<Box<Expr>> {
+    let mut parser = Parser::new(tokens);
+    parser.expression()
+}
+
 #[cfg(test)]
 mod tests {
     use std::slice::Iter;
@@ -222,8 +222,18 @@ mod tests {
     use crate::expr::UnaryOperator::NumericNegate;
     use crate::expr::{Expr, Literal, UnaryOperator};
     use crate::parser::Parser;
-    use crate::tokens::TokenType::*;
-    use crate::tokens::{Location, Token, TokenType};
+    use crate::token::TokenType::*;
+    use crate::token::{Location, Token, TokenType};
+
+    // !true || false
+    // > Unary(
+    // BooleanNegate,
+    // Literal(
+    // Boolean(
+    // true,
+    // ),
+    // ),
+    // )
 
     #[test]
     fn single_expression() {

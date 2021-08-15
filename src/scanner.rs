@@ -4,8 +4,8 @@ use std::string::String;
 use phf::phf_map;
 
 use crate::scanner::ScannerError::{BadCharacter, NumberParsing, UnclosedString};
-use crate::tokens::TokenType::*;
-use crate::tokens::{Location, Token, TokenType};
+use crate::token::TokenType::*;
+use crate::token::{Location, Token, TokenType};
 
 use self::hidden::CharReader;
 
@@ -40,7 +40,7 @@ mod hidden {
 
     use itertools::{multipeek, MultiPeek};
 
-    use crate::tokens::Location;
+    use crate::token::Location;
 
     // based on https://github.com/toyboot4e/loxrs/blob/master/loxrs_treewalk/src/lexer/scanner.rs
     pub struct CharReader<I>
@@ -290,8 +290,8 @@ mod tests {
 
     use crate::scanner::scan_tokens;
     use crate::scanner::ScannerError::{BadCharacter, UnclosedString};
-    use crate::tokens::TokenType::*;
-    use crate::tokens::{Location, Token};
+    use crate::token::TokenType::*;
+    use crate::token::{Location, Token};
 
     #[test]
     fn simple_test() {

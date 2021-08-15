@@ -73,10 +73,7 @@ impl Location {
     }
 
     pub fn new(line: usize, column: usize) -> Self {
-        Self {
-            line: line,
-            column: column,
-        }
+        Self { line, column }
     }
 
     pub fn line(&self) -> usize {
