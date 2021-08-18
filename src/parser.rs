@@ -1,13 +1,18 @@
+use std::iter;
 use std::iter::Peekable;
+use std::process::id;
 use std::slice::Iter;
 
+use crate::expr::{BinaryOperator, Expr, Literal, UnaryOperator};
 use crate::expr::BinaryOperator::*;
 use crate::expr::Expr::{Binary, Grouping, Unary};
-use crate::expr::Literal::{Boolean, Number, String};
+use crate::expr::Literal::{Boolean, Number};
 use crate::expr::UnaryOperator::{BooleanNegate, NumericNegate};
-use crate::expr::{BinaryOperator, Expr, Literal, UnaryOperator};
 use crate::parser::ParserError::{MissingExpectedToken, UnexpectedEOF};
+use crate::stmt::Stmt;
 use crate::token::{Token, TokenType};
+use crate::token::TokenType::{Identifier, Print, Semicolon, Var};
+use std::collections::VecDeque;
 
 #[derive(Debug, PartialEq)]
 pub enum ParserError {
@@ -17,44 +22,43 @@ pub enum ParserError {
 
 type Result<T> = std::result::Result<T, ParserError>;
 
-// TODO: separate parser logic (i.e. grammar) from the scanner logic
-pub struct Parser<'a, I>
-where
-    I: Iterator<Item = &'a Token>,
+// TODO: separate parser logic (i.e. grammar) from the scanning logic
+pub struct Parser
 {
-    src: Peekable<I>,
+    src: VecDeque<Token>,
 }
 
-impl<'a> Parser<'a, Iter<'a, Token>> {
-    pub fn new(src: Iter<'a, Token>) -> Self {
+impl Parser {
+    pub fn new() -> Self {
         Self {
-            src: src.peekable(),
+            src: VecDeque::new(),
         }
     }
-}
 
-impl<'a, I> Parser<'a, I>
-where
-    I: Iterator<Item = &'a Token>,
-{
-    fn next(&mut self) -> Option<&Token> {
-        self.src.next()
+    pub fn append(&mut self, tokens: Vec<Token>) {
+        self.src.extend(tokens)
     }
 
-    pub fn peek(&mut self) -> Option<&&Token> {
-        self.src.peek()
+    // Iterator-like methods
+
+    fn next(&mut self) -> Option<Token> {
+        self.src.pop_front()
     }
 
-    pub fn consume_token(&mut self, expected: TokenType) -> Option<&Token> {
+    pub fn peek(&mut self) -> Option<&Token> {
+        self.src.front()
+    }
+
+    pub fn consume_token(&mut self, expected: TokenType) -> Option<Token> {
         self.consume_one_of(&[expected])
     }
 
-    fn consume_token_expect(&mut self, expected: TokenType) -> Result<&Token> {
+    fn consume_token_expect(&mut self, expected: TokenType) -> Result<Token> {
         self.consume_token(expected.clone())
             .ok_or(MissingExpectedToken(expected))
     }
 
-    pub fn consume_one_of(&mut self, expected_types: &[TokenType]) -> Option<&Token> {
+    pub fn consume_one_of(&mut self, expected_types: &[TokenType]) -> Option<Token> {
         if let Some(actual) = self.peek() {
             for expected in expected_types {
                 if actual.token_type.is_same_variant(expected) {
@@ -68,8 +72,8 @@ where
 
     /// Advances while the peek matches `predicate`
     pub fn advance_while<P>(&mut self, predicate: P) -> bool
-    where
-        P: Fn(&Token) -> bool,
+        where
+            P: Fn(&Token) -> bool,
     {
         while let Some(c) = self.peek() {
             if !predicate(c) {
@@ -79,6 +83,14 @@ where
         }
         return false;
     }
+
+    // TODO: Try to get rid of this
+    fn synchronize(&mut self) {
+        self.advance_while(|token| !token.token_type.is_same_variant(&Semicolon));
+        self.consume_token(Semicolon);
+    }
+
+    // Helper methods
 
     fn token_type_to_binary_operator(token_type: &TokenType) -> BinaryOperator {
         match token_type {
@@ -106,11 +118,18 @@ where
 
     fn token_type_to_literal(token_type: &TokenType) -> Literal {
         match token_type {
-            TokenType::String(s) => String(s.clone()), // TODO get rid of this clone?
+            TokenType::String(s) => Literal::String(s.clone()), // TODO: get rid of this clone?
             TokenType::Number(n) => Number(*n),
             TokenType::True => Boolean(true),
             TokenType::False => Boolean(false),
             _ => unreachable!(),
+        }
+    }
+
+    fn token_type_to_variable(token_type: &TokenType) -> String {
+        match token_type {
+            TokenType::Identifier(name) => name.clone(),
+            _ => unreachable!()
         }
     }
 
@@ -119,8 +138,8 @@ where
         token_types: &[TokenType],
         higher_precedence_parser: ParseFunction,
     ) -> Result<Box<Expr>>
-    where
-        ParseFunction: Fn(&mut Self) -> Result<Box<Expr>>,
+        where
+            ParseFunction: Fn(&mut Self) -> Result<Box<Expr>>,
     {
         let mut expr = higher_precedence_parser(self)?;
         while let Some(operator_token) = self.consume_one_of(token_types) {
@@ -138,8 +157,8 @@ where
         token_types: &[TokenType],
         higher_precedence_parser: ParseFunction,
     ) -> Result<Box<Expr>>
-    where
-        ParseFunction: Fn(&mut Self) -> Result<Box<Expr>>,
+        where
+            ParseFunction: Fn(&mut Self) -> Result<Box<Expr>>,
     {
         if let Some(operator_token) = self.consume_one_of(token_types) {
             let token_type = &operator_token.token_type.clone();
@@ -150,6 +169,8 @@ where
 
         higher_precedence_parser(self)
     }
+
+    // Expression parsing methods
 
     fn expression(&mut self) -> Result<Box<Expr>> {
         self.equality()
@@ -203,29 +224,95 @@ where
             return Ok(Box::new(Grouping(expr)));
         }
 
+        if let Some(identifier) = self.consume_token(TokenType::Identifier("".to_string())) {
+            return Ok(Box::new(Expr::Variable(Self::token_type_to_variable(&identifier.token_type))))
+        }
+
         return Err(UnexpectedEOF);
+    }
+
+    // Statement parsing methods
+
+    fn program(&mut self) -> Result<Vec<Stmt>> {
+        let mut stmts = Vec::new();
+        loop {
+            match self.declaration()? {
+                Some(stmt) => stmts.push(stmt),
+                None => break,
+            }
+        }
+        Ok(stmts)
+    }
+
+    // TODO: Clean up logic
+    fn declaration(&mut self) -> Result<Option<Stmt>>  {
+        match if self.consume_token(Var).is_some() {
+            self.var_declaration()
+        } else {
+            self.statement()
+        } {
+            Ok(maybe_stmt) => Ok(maybe_stmt),
+            Err(err) => {
+                self.synchronize();
+                Err(err)
+            }
+        }
+    }
+
+    fn var_declaration(&mut self) -> Result<Option<Stmt>> {
+        let name = Self::token_type_to_variable(&self.consume_token_expect(Identifier("".to_string()))?.token_type);
+        let mut initializer = None;
+        if self.consume_token(TokenType::Equal).is_some() {
+            initializer = Some(self.expression()?);
+        }
+        self.consume_token_expect(Semicolon);
+        Ok(Some(Stmt::Var(name.clone(), initializer)))
+
+    }
+
+    fn statement(&mut self) -> Result<Option<Stmt>> {
+        if self.peek().is_none() {
+            Ok(None)
+        } else if self.consume_token(Print).is_some() {
+            Ok(Some(self.print_statement()?))
+        } else {
+            Ok(Some(self.expression_statement()?))
+        }
+    }
+
+    fn print_statement(&mut self) -> Result<Stmt> {
+        let expression = self.expression()?;
+        self.consume_token_expect(Semicolon)?;
+        Ok(Stmt::Print(expression))
+    }
+
+    fn expression_statement(&mut self) -> Result<Stmt> {
+        let expression = self.expression()?;
+        self.consume_token_expect(Semicolon)?;
+        Ok(Stmt::Expression(expression))
     }
 }
 
-pub fn parse(tokens: Iter<Token>) -> Result<Box<Expr>> {
-    let mut parser = Parser::new(tokens);
-    parser.expression()
+pub fn parse(tokens: Vec<Token>) -> Result<Vec<Stmt>> {
+    let mut parser = Parser::new();
+    parser.append(tokens);
+    parser.program()
 }
 
 #[cfg(test)]
 mod tests {
     use std::slice::Iter;
 
+    use crate::expr::{Expr, Literal, UnaryOperator};
     use crate::expr::BinaryOperator::*;
     use crate::expr::Expr::{Binary, Grouping, Unary};
     use crate::expr::Literal::{Number, String};
     use crate::expr::UnaryOperator::NumericNegate;
-    use crate::expr::{Expr, Literal, UnaryOperator};
     use crate::parser::Parser;
-    use crate::token::TokenType::*;
     use crate::token::{Location, Token, TokenType};
+    use crate::token::TokenType::*;
 
-    // !true || false
+// !true || false
     // > Unary(
     // BooleanNegate,
     // Literal(

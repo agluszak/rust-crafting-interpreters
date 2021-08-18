@@ -4,8 +4,8 @@ use std::string::String;
 use phf::phf_map;
 
 use crate::scanner::ScannerError::{BadCharacter, NumberParsing, UnclosedString};
-use crate::token::TokenType::*;
 use crate::token::{Location, Token, TokenType};
+use crate::token::TokenType::*;
 
 use self::hidden::CharReader;
 
@@ -41,34 +41,22 @@ mod hidden {
     use itertools::{multipeek, MultiPeek};
 
     use crate::token::Location;
+    use std::iter;
+    use std::collections::VecDeque;
 
     // based on https://github.com/toyboot4e/loxrs/blob/master/loxrs_treewalk/src/lexer/scanner.rs
-    pub struct CharReader<I>
-    where
-        I: Iterator<Item = char>,
+    pub struct CharReader
     {
-        src: MultiPeek<I>,
+        src: VecDeque<char>,
         location: Location,
         lexeme: String,
     }
 
-    impl<'a> CharReader<Chars<'a>> {
-        pub fn new(src: &'a str) -> Self {
-            CharReader {
-                src: multipeek(src.chars()),
-                location: Location::initial(),
-                lexeme: String::new(),
-            }
-        }
-    }
-
-    impl<I> Iterator for CharReader<I>
-    where
-        I: Iterator<Item = char>,
+    impl Iterator for CharReader
     {
         type Item = char;
         fn next(&mut self) -> Option<char> {
-            let next = self.src.next();
+            let next = self.src.pop_front();
             if let Some(c) = next {
                 self.lexeme.push(c);
                 match c {
@@ -85,10 +73,20 @@ mod hidden {
         }
     }
 
-    impl<I> CharReader<I>
-    where
-        I: Iterator<Item = char>,
+    impl CharReader
     {
+        pub fn new() -> Self {
+            CharReader {
+                src: VecDeque::new(),
+                location: Location::initial(),
+                lexeme: String::new(),
+            }
+        }
+
+        pub fn append(&mut self, src: String) {
+            self.src.extend(src.chars())
+        }
+
         pub fn location(&self) -> Location {
             self.location
         }
@@ -98,14 +96,7 @@ mod hidden {
         }
 
         pub fn peek(&mut self) -> Option<&char> {
-            self.src.reset_peek();
-            self.src.peek()
-        }
-
-        pub fn peek_next(&mut self) -> Option<&char> {
-            self.src.reset_peek();
-            self.src.peek();
-            self.src.peek()
+            self.src.front()
         }
 
         pub fn clear_lexeme(&mut self) {
@@ -124,8 +115,8 @@ mod hidden {
 
         /// Advances while the peek matches `predicate`; peeks char by char
         pub fn advance_while<P>(&mut self, predicate: P) -> bool
-        where
-            P: Fn(char) -> bool,
+            where
+                P: Fn(char) -> bool,
         {
             while let Some(&c) = self.peek() {
                 if !predicate(c) {
@@ -140,15 +131,33 @@ mod hidden {
 
 type Result<T> = std::result::Result<T, ScannerError>;
 
-struct Scanner<'a> {
-    char_reader: CharReader<Chars<'a>>,
+pub struct Scanner {
+    char_reader: CharReader,
 }
 
-impl<'a> Scanner<'a> {
-    fn new(src: &'a str) -> Self {
+impl Scanner {
+    pub fn new() -> Self {
         Self {
-            char_reader: CharReader::new(src),
+            char_reader: CharReader::new(),
         }
+    }
+
+    pub fn append(&mut self, source: String) {
+        self.char_reader.append(source);
+    }
+
+    pub fn scan_tokens(&mut self) -> (Vec<Token>, Vec<ScannerError>) {
+        let mut tokens = Vec::new();
+        let mut errors = Vec::new();
+        loop {
+            match self.scan_token() {
+                Ok(Some(token)) => tokens.push(token),
+                Err(error) => errors.push(error),
+                Ok(None) => break,
+            }
+        }
+
+        (tokens, errors)
     }
 
     fn scan_token(&mut self) -> Result<Option<Token>> {
@@ -216,7 +225,7 @@ impl<'a> Scanner<'a> {
         c.is_ascii_alphanumeric() || c == '_'
     }
 
-    // TODO range comments
+    // TODO: range comments
     fn handle_slash(&mut self) -> Option<TokenType> {
         if self.char_reader.consume_char('/') {
             self.char_reader.advance_while(|c| c != '\n');
@@ -269,29 +278,14 @@ impl<'a> Scanner<'a> {
     }
 }
 
-pub fn scan_tokens(source: String) -> (Vec<Token>, Vec<ScannerError>) {
-    let mut scanner = Scanner::new(&*source);
-    let mut tokens = Vec::new();
-    let mut errors = Vec::new();
-    loop {
-        match scanner.scan_token() {
-            Ok(Some(token)) => tokens.push(token),
-            Err(error) => errors.push(error),
-            Ok(None) => break,
-        }
-    }
-
-    (tokens, errors)
-}
-
 #[cfg(test)]
 mod tests {
     use itertools::zip;
 
     use crate::scanner::scan_tokens;
     use crate::scanner::ScannerError::{BadCharacter, UnclosedString};
-    use crate::token::TokenType::*;
     use crate::token::{Location, Token};
+    use crate::token::TokenType::*;
 
     #[test]
     fn simple_test() {

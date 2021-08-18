@@ -10,6 +10,7 @@ mod runner;
 mod scanner;
 mod token;
 mod value;
+mod stmt;
 
 fn main() {
     let args: Vec<String> = env::args().collect();

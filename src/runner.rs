@@ -2,23 +2,33 @@ use std::fs::read_to_string;
 use std::io;
 use std::io::BufRead;
 
-use crate::interpreter::evaluate;
+use crate::interpreter::Interpreter;
 use crate::parser::parse;
-use crate::scanner::{scan_tokens, ScannerError};
+use crate::scanner::{Scanner, ScannerError};
+
+struct Runner {
+
+}
 
 pub fn run(source: String) -> () {
     let mut had_error = false;
     let mut had_runtime_error = false;
 
-    let (tokens, errors) = scan_tokens(source);
+    let mut scanner = Scanner::new();
+
+    scanner.append(source);
+
+    let (tokens, errors) = scanner.scan_tokens();
 
     had_error = !errors.is_empty();
 
-    let ast = parse(tokens.iter()).unwrap();
+    let ast = parse(tokens).unwrap();
 
-    println!("{:#?}", *ast);
+    println!("{:#?}", ast);
 
-    println!("{:#?}", evaluate(*ast));
+    let mut interpreter = Interpreter::new();
+
+    println!("{:#?}", interpreter.interpret(ast));
 }
 
 pub fn run_file(path: &str) {
