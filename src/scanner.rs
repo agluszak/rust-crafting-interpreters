@@ -1,4 +1,3 @@
-use std::str::Chars;
 use std::string::String;
 
 use phf::phf_map;
@@ -36,13 +35,9 @@ pub enum ScannerError {
 }
 
 mod hidden {
-    use std::str::Chars;
-
-    use itertools::{multipeek, MultiPeek};
+    use std::collections::VecDeque;
 
     use crate::token::Location;
-    use std::iter;
-    use std::collections::VecDeque;
 
     // based on https://github.com/toyboot4e/loxrs/blob/master/loxrs_treewalk/src/lexer/scanner.rs
     pub struct CharReader
@@ -146,7 +141,7 @@ impl Scanner {
         self.char_reader.append(source);
     }
 
-    pub fn scan_tokens(&mut self) -> (Vec<Token>, Vec<ScannerError>) {
+    pub fn scan_tokens(&mut self) -> std::result::Result<Vec<Token>, Vec<ScannerError>> {
         let mut tokens = Vec::new();
         let mut errors = Vec::new();
         loop {
@@ -157,7 +152,11 @@ impl Scanner {
             }
         }
 
-        (tokens, errors)
+        if !errors.is_empty() {
+            Err(errors)
+        } else {
+            Ok(tokens)
+        }
     }
 
     fn scan_token(&mut self) -> Result<Option<Token>> {
@@ -280,12 +279,18 @@ impl Scanner {
 
 #[cfg(test)]
 mod tests {
-    use itertools::zip;
-
-    use crate::scanner::scan_tokens;
+    use crate::scanner::{Scanner, ScannerError};
     use crate::scanner::ScannerError::{BadCharacter, UnclosedString};
     use crate::token::{Location, Token};
     use crate::token::TokenType::*;
+
+    fn scanner_test(source: &str, expected_result: Result<Vec<Token>, Vec<ScannerError>>) {
+        let mut scanner = Scanner::new();
+        scanner.append(source.to_string());
+        let result = scanner.scan_tokens();
+
+        assert_eq!(result, expected_result);
+    }
 
     #[test]
     fn simple_test() {
@@ -295,164 +300,48 @@ var       num = 2 + 3.14;
 if (true or false) { print _how_are_you; }
 "#;
 
-        let (tokens, errors) = scan_tokens(SOURCE.to_string());
-        assert!(errors.is_empty());
-
         let expected_tokens = vec![
-            Token {
-                token_type: Var,
-                lexeme: "var".to_string(),
-                location: Location::new(1, 1),
-            },
-            Token {
-                token_type: Identifier("_how_are_you".to_string()),
-                lexeme: "_how_are_you".to_string(),
-                location: Location::new(1, 5),
-            },
-            Token {
-                token_type: Equal,
-                lexeme: "=".to_string(),
-                location: Location::new(1, 18),
-            },
-            Token {
-                token_type: String("good".to_string()),
-                lexeme: "\"good\"".to_string(),
-                location: Location::new(1, 20),
-            },
-            Token {
-                token_type: Semicolon,
-                lexeme: ";".to_string(),
-                location: Location::new(1, 26),
-            },
-            Token {
-                token_type: Var,
-                lexeme: "var".to_string(),
-                location: Location::new(3, 1),
-            },
-            Token {
-                token_type: Identifier("num".to_string()),
-                lexeme: "num".to_string(),
-                location: Location::new(3, 11),
-            },
-            Token {
-                token_type: Equal,
-                lexeme: "=".to_string(),
-                location: Location::new(3, 15),
-            },
-            Token {
-                token_type: Number(2.0),
-                lexeme: "2".to_string(),
-                location: Location::new(3, 17),
-            },
-            Token {
-                token_type: Plus,
-                lexeme: "+".to_string(),
-                location: Location::new(3, 19),
-            },
-            Token {
-                token_type: Number(3.14),
-                lexeme: "3.14".to_string(),
-                location: Location::new(3, 21),
-            },
-            Token {
-                token_type: Semicolon,
-                lexeme: ";".to_string(),
-                location: Location::new(3, 25),
-            },
-            Token {
-                token_type: If,
-                lexeme: "if".to_string(),
-                location: Location::new(4, 1),
-            },
-            Token {
-                token_type: LeftParen,
-                lexeme: "(".to_string(),
-                location: Location::new(4, 4),
-            },
-            Token {
-                token_type: True,
-                lexeme: "true".to_string(),
-                location: Location::new(4, 5),
-            },
-            Token {
-                token_type: Or,
-                lexeme: "or".to_string(),
-                location: Location::new(4, 10),
-            },
-            Token {
-                token_type: False,
-                lexeme: "false".to_string(),
-                location: Location::new(4, 13),
-            },
-            Token {
-                token_type: RightParen,
-                lexeme: ")".to_string(),
-                location: Location::new(4, 18),
-            },
-            Token {
-                token_type: LeftBrace,
-                lexeme: "{".to_string(),
-                location: Location::new(4, 20),
-            },
-            Token {
-                token_type: Print,
-                lexeme: "print".to_string(),
-                location: Location::new(4, 22),
-            },
-            Token {
-                token_type: Identifier("_how_are_you".to_string()),
-                lexeme: "_how_are_you".to_string(),
-                location: Location::new(4, 28),
-            },
-            Token {
-                token_type: Semicolon,
-                lexeme: ";".to_string(),
-                location: Location::new(4, 40),
-            },
-            Token {
-                token_type: RightBrace,
-                lexeme: "}".to_string(),
-                location: Location::new(4, 42),
-            },
+            Token::new(Var, "var".to_string(), Location::new(1, 1)),
+            Token::new(Identifier("_how_are_you".to_string()), "_how_are_you".to_string(), Location::new(1, 5)),
+            Token::new(Equal, "=".to_string(), Location::new(1, 18)),
+            Token::new(String("good".to_string()), "\"good\"".to_string(), Location::new(1, 20)),
+            Token::new(Semicolon, ";".to_string(), Location::new(1, 26)),
+            Token::new(Var, "var".to_string(), Location::new(3, 1)),
+            Token::new(Identifier("num".to_string()), "num".to_string(), Location::new(3, 11)),
+            Token::new(Equal, "=".to_string(), Location::new(3, 15)),
+            Token::new(Number(2.0), "2".to_string(), Location::new(3, 17)),
+            Token::new(Plus, "+".to_string(), Location::new(3, 19)),
+            Token::new(Number(3.14), "3.14".to_string(), Location::new(3, 21)),
+            Token::new(Semicolon, ";".to_string(), Location::new(3, 25)),
+            Token::new(If, "if".to_string(), Location::new(4, 1)),
+            Token::new(LeftParen, "(".to_string(), Location::new(4, 4)),
+            Token::new(True, "true".to_string(), Location::new(4, 5)),
+            Token::new(Or, "or".to_string(), Location::new(4, 10)),
+            Token::new(False, "false".to_string(), Location::new(4, 13)),
+            Token::new(RightParen, ")".to_string(), Location::new(4, 18)),
+            Token::new(LeftBrace, "{".to_string(), Location::new(4, 20)),
+            Token::new(Print, "print".to_string(), Location::new(4, 22)),
+            Token::new(Identifier("_how_are_you".to_string()), "_how_are_you".to_string(), Location::new(4, 28)),
+            Token::new(Semicolon, ";".to_string(), Location::new(4, 40)),
+            Token::new(RightBrace, "}".to_string(), Location::new(4, 42)),
         ];
 
-        for (expected, actual) in zip(expected_tokens, tokens) {
-            assert_eq!(expected, actual);
-        }
+        scanner_test(SOURCE, Ok(expected_tokens))
     }
 
     #[test]
     fn unclosed_string() {
-        let (tokens, errors) = scan_tokens("\"".to_string());
-        assert!(tokens.is_empty());
-        assert_eq!(errors, vec![UnclosedString]);
+        scanner_test("\"", Err(vec![UnclosedString]))
     }
 
     #[test]
     fn nonsense_chars() {
-        let (tokens, errors) = scan_tokens("$#@qwerty if $* true".to_string());
-        let expected_tokens = vec![
-            Token {
-                token_type: Identifier("qwerty".to_string()),
-                lexeme: "qwerty".to_string(),
-                location: Location::new(1, 4),
-            },
-            Token {
-                token_type: If,
-                lexeme: "if".to_string(),
-                location: Location::new(1, 11),
-            },
-            Token {
-                token_type: Star,
-                lexeme: "*".to_string(),
-                location: Location::new(1, 15),
-            },
-            Token {
-                token_type: True,
-                lexeme: "true".to_string(),
-                location: Location::new(1, 17),
-            },
-        ];
+        // let expected_tokens = vec![
+        //     Token::new(Identifier("qwerty".to_string()), "qwerty".to_string(), Location::new(1, 4)),
+        //     Token::new(If, "if".to_string(), Location::new(1, 11)),
+        //     Token::new(Star, "*".to_string(), Location::new(1, 15)),
+        //     Token::new(True, "true".to_string(), Location::new(1, 17)),
+        // ];
 
         let expected_errors = vec![
             BadCharacter(Location::new(1, 2)),
@@ -461,13 +350,7 @@ if (true or false) { print _how_are_you; }
             BadCharacter(Location::new(1, 15)),
         ];
 
-        for (expected, actual) in zip(expected_tokens, tokens) {
-            assert_eq!(expected, actual);
-        }
-
-        for (expected, actual) in zip(expected_errors, errors) {
-            assert_eq!(expected, actual);
-        }
+        scanner_test("$#@qwerty if $* true", Err(expected_errors))
     }
 
     #[test]
@@ -475,105 +358,39 @@ if (true or false) { print _how_are_you; }
         static SOURCE: &str = r#"2 / 3 // comment
 / / not_a_comment
 "#;
-        let (tokens, errors) = scan_tokens(SOURCE.to_string());
-        assert!(errors.is_empty());
 
         let expected_tokens = vec![
-            Token {
-                token_type: Number(2.0),
-                lexeme: "2".to_string(),
-                location: Location::new(1, 1),
-            },
-            Token {
-                token_type: Slash,
-                lexeme: "/".to_string(),
-                location: Location::new(1, 3),
-            },
-            Token {
-                token_type: Number(3.0),
-                lexeme: "3".to_string(),
-                location: Location::new(1, 5),
-            },
-            Token {
-                token_type: Slash,
-                lexeme: "/".to_string(),
-                location: Location::new(2, 1),
-            },
-            Token {
-                token_type: Slash,
-                lexeme: "/".to_string(),
-                location: Location::new(2, 3),
-            },
-            Token {
-                token_type: Identifier("not_a_comment".to_string()),
-                lexeme: "not_a_comment".to_string(),
-                location: Location::new(2, 5),
-            },
+            Token::new(Number(2.0), "2".to_string(), Location::new(1, 1)),
+            Token::new(Slash, "/".to_string(), Location::new(1, 3)),
+            Token::new(Number(3.0), "3".to_string(), Location::new(1, 5)),
+            Token::new(Slash, "/".to_string(), Location::new(2, 1)),
+            Token::new(Slash, "/".to_string(), Location::new(2, 3)),
+            Token::new(Identifier("not_a_comment".to_string()), "not_a_comment".to_string(), Location::new(2, 5)),
         ];
 
-        for (expected, actual) in zip(expected_tokens, tokens) {
-            assert_eq!(expected, actual);
-        }
+        scanner_test(SOURCE, Ok(expected_tokens))
     }
 
     #[test]
     fn number_without_point() {
-        let (tokens, errors) = scan_tokens("5. 2 3.1 1".to_string());
-        assert!(errors.is_empty());
-
         let expected_tokens = vec![
-            Token {
-                token_type: Number(5.0),
-                lexeme: "5.".to_string(),
-                location: Location::new(1, 1),
-            },
-            Token {
-                token_type: Number(2.0),
-                lexeme: "2".to_string(),
-                location: Location::new(1, 4),
-            },
-            Token {
-                token_type: Number(3.1),
-                lexeme: "3.1".to_string(),
-                location: Location::new(1, 6),
-            },
-            Token {
-                token_type: Number(1.0),
-                lexeme: "1".to_string(),
-                location: Location::new(1, 10),
-            },
+            Token::new(Number(5.0), "5.".to_string(), Location::new(1, 1)),
+            Token::new(Number(2.0), "2".to_string(), Location::new(1, 4)),
+            Token::new(Number(3.1), "3.1".to_string(), Location::new(1, 6)),
+            Token::new(Number(1.0), "1".to_string(), Location::new(1, 10)),
         ];
 
-        for (expected, actual) in zip(expected_tokens, tokens) {
-            assert_eq!(expected, actual);
-        }
+        scanner_test("5. 2 3.1 1", Ok(expected_tokens))
     }
 
     #[test]
     fn number_with_two_points() {
-        let (tokens, errors) = scan_tokens("3..14".to_string());
-        assert!(errors.is_empty());
-
         let expected_tokens = vec![
-            Token {
-                token_type: Number(3.0),
-                lexeme: "3.".to_string(),
-                location: Location::new(1, 1),
-            },
-            Token {
-                token_type: Dot,
-                lexeme: ".".to_string(),
-                location: Location::new(1, 3),
-            },
-            Token {
-                token_type: Number(14.0),
-                lexeme: "14".to_string(),
-                location: Location::new(1, 4),
-            },
+            Token::new(Number(3.0), "3.".to_string(), Location::new(1, 1)),
+            Token::new(Dot, ".".to_string(), Location::new(1, 3)),
+            Token::new(Number(14.0), "14".to_string(), Location::new(1, 4)),
         ];
 
-        for (expected, actual) in zip(expected_tokens, tokens) {
-            assert_eq!(expected, actual);
-        }
+        scanner_test("3..14", Ok(expected_tokens))
     }
 }

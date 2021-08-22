@@ -1,53 +1,89 @@
+use std::cell::RefCell;
 use std::cmp::Ordering;
+use std::collections::HashMap;
 use std::ops::{Neg, Not};
+use std::rc::Rc;
 
 use crate::expr::{BinaryOperator, Expr, Literal, UnaryOperator};
-use crate::interpreter::RuntimeError::{DivideByZero, NumberComparisonError, WrongOperator, WrongType, UndefinedVariable};
+use crate::interpreter::RuntimeError::{DivideByZero, NumberComparisonError, UndefinedVariable, WrongOperator, WrongType};
 use crate::stmt::Stmt;
 use crate::value::Value;
-use std::collections::HashMap;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum RuntimeError {
     WrongType,
     // TODO: Add location info
     NumberComparisonError(f64, f64),
     DivideByZero,
     WrongOperator,
-    UndefinedVariable
+    UndefinedVariable,
 }
 
 type Result<T> = std::result::Result<T, RuntimeError>;
 
 pub struct Environment {
-    values: HashMap<String, Value>
+    enclosing: Option<Rc<RefCell<Environment>>>,
+    values: HashMap<String, Value>,
 }
 
 impl Environment {
-    fn new() -> Self {
+    fn global() -> Self {
         Self {
-            values: HashMap::new()
+            enclosing: None,
+            values: HashMap::new(),
         }
     }
 
-    fn define(&mut self, name: String, value: Value) {
+    fn local(enclosing: Rc<RefCell<Environment>>) -> Self {
+        Self {
+            enclosing: Some(enclosing),
+            values: HashMap::new(),
+        }
+    }
+
+    fn define(&mut self, name: String, value: Value) -> Result<()> {
         self.values.insert(name, value);
+        Ok(())
+    }
+
+    fn is_defined(&self, name: &str) -> bool {
+        self.values.contains_key(name)
+    }
+
+    fn assign(&mut self, name: String, value: Value) -> Result<()> {
+        if self.is_defined(&*name) {
+            self.values.insert(name, value);
+            Ok(())
+        } else {
+            if let Some(enclosing) = &self.enclosing {
+                enclosing.borrow_mut().assign(name, value)
+            } else {
+                Err(RuntimeError::UndefinedVariable)
+            }
+        }
     }
 
     // TODO: should this return a reference?
-    fn get(&self, name: String) -> Result<Value> {
-        self.values.get(&*name).cloned().ok_or(UndefinedVariable)
+    fn get(&self, name: &str) -> Result<Value> {
+        let maybe_value = self.values.get(name).cloned();
+        let maybe_value =
+            if let Some(enclosing) = &self.enclosing {
+                maybe_value.or(enclosing.borrow().get(name).ok())
+            } else {
+                maybe_value
+            };
+        maybe_value.ok_or(UndefinedVariable)
     }
 }
 
 pub struct Interpreter {
-    environment: Environment
+    environment: Rc<RefCell<Environment>>,
 }
 
 impl Interpreter {
-    pub(crate) fn new() -> Self {
+    pub fn new() -> Self {
         Self {
-            environment: Environment::new(),
+            environment: Rc::new(RefCell::new(Environment::global())),
         }
     }
 
@@ -63,32 +99,54 @@ impl Interpreter {
     fn execute(&mut self, stmt: Stmt) -> Result<()> {
         match stmt {
             Stmt::Expression(expr) => {
-                let _val = self.evaluate(*expr)?;
+                let _val = self.evaluate(expr)?;
                 Ok(())
             }
             Stmt::Print(expr) => {
-                let val = self.evaluate(*expr)?;
+                let val = self.evaluate(expr)?;
                 println!("{:?}", val);
                 Ok(())
             }
             Stmt::Var(name, initializer) => {
                 let mut value = Value::Nil;
                 if let Some(initializer) = initializer {
-                    value = self.evaluate(*initializer)?;
+                    value = self.evaluate(initializer)?;
                 }
-                self.environment.define(name, value);
+                self.environment.borrow_mut().define(name, value)?;
                 Ok(())
             }
+            Stmt::Block(statements) => self.execute_stmts_in_environment(statements, Environment::local(Rc::clone(&self.environment)))
         }
     }
 
-    fn evaluate(&self, expr: Expr) -> Result<Value> {
+    fn execute_stmts(&mut self, statements: Vec<Stmt>) -> Result<()> {
+        for statement in statements {
+            self.execute(statement)?
+        }
+
+        Ok(())
+    }
+
+    fn execute_stmts_in_environment(&mut self, statements: Vec<Stmt>, environment: Environment) -> Result<()> {
+        let old = Rc::clone(&self.environment);
+        self.environment = Rc::new(RefCell::new(environment));
+        let result = self.execute_stmts(statements);
+        self.environment = old;
+        result
+    }
+
+    fn evaluate(&mut self, expr: Expr) -> Result<Value> {
         match expr {
             Expr::Binary(left, op, right) => self.evaluate_binary(*left, op, *right),
             Expr::Grouping(expr) => self.evaluate(*expr),
             Expr::Literal(literal) => Self::evaluate_literal(literal),
             Expr::Unary(op, expr) => self.evaluate_unary(op, *expr),
-            Expr::Variable(name) => self.environment.get(name),
+            Expr::Variable(name) => self.environment.borrow().get(&*name),
+            Expr::Assign(variable, expr) => {
+                let value = self.evaluate(*expr)?;
+                self.environment.borrow_mut().assign(variable, value.clone())?;
+                Ok(value)
+            }
         }
     }
 
@@ -101,7 +159,7 @@ impl Interpreter {
         }
     }
 
-    fn evaluate_unary(&self, op: UnaryOperator, expr: Expr) -> Result<Value> {
+    fn evaluate_unary(&mut self, op: UnaryOperator, expr: Expr) -> Result<Value> {
         let val = self.evaluate(expr)?;
         match op {
             UnaryOperator::BooleanNegate => require_boolean(&val).map(&bool::not).map(&Value::Boolean),
@@ -109,7 +167,7 @@ impl Interpreter {
         }
     }
 
-    fn evaluate_binary(&self, left: Expr, op: BinaryOperator, right: Expr) -> Result<Value> {
+    fn evaluate_binary(&mut self, left: Expr, op: BinaryOperator, right: Expr) -> Result<Value> {
         let left = self.evaluate(left)?;
         let right = self.evaluate(right)?;
         match op {
@@ -123,7 +181,7 @@ impl Interpreter {
                 require_number(&left)? + require_number(&right)?,
             )),
             BinaryOperator::Multiply => Ok(Value::Number(
-                require_number(&left)? + require_number(&right)?,
+                require_number(&left)? * require_number(&right)?,
             )),
             BinaryOperator::Divide => {
                 let left = require_number(&left)?;
@@ -182,3 +240,24 @@ fn compare(left: Value, right: Value, f: impl Fn(Ordering) -> bool) -> Result<Va
 
     Ok(Value::Boolean(f(ordering)))
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::interpreter::Interpreter;
+    use crate::stmt::Stmt;
+
+    #[test]
+    fn interpreter_test() {
+        use crate::expr::Expr::Literal;
+        use crate::expr::Literal::Number;
+
+        let mut interpreter = Interpreter::new();
+        let set_x = Stmt::Var("x".to_string(), Some(Literal(Number(2.0))));
+
+        // assert_eq!(interpreter.evaluate(Expr::Variable("x".to_string())), Err(UndefinedVariable));
+        // interpreter.execute(set_x);
+        // assert_eq!(interpreter.evaluate(Expr::Variable("x".to_string())), Ok(Value::Number(2.0)));
+    }
+}
+
+// { var x = 4; print x; }

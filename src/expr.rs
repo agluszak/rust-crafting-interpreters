@@ -5,6 +5,7 @@ pub enum Expr {
     Literal(Literal),
     Unary(UnaryOperator, Box<Expr>),
     Variable(String),
+    Assign(String, Box<Expr>),
 }
 
 #[derive(Debug, PartialEq)]

@@ -61,6 +61,16 @@ pub struct Token {
     pub location: Location,
 }
 
+impl Token {
+    pub fn new(token_type: TokenType, lexeme: String, location: Location) -> Self {
+        Self {
+            token_type,
+            lexeme,
+            location,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Location {
     line: usize,
