@@ -8,7 +8,7 @@ pub enum Expr {
     Assign(String, Box<Expr>),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub enum BinaryOperator {
     Add,
     Subtract,

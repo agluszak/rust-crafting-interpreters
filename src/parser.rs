@@ -175,7 +175,7 @@ impl Parser {
     }
 
     fn assignment(&mut self) -> Result<Expr> {
-        let expr = self.equality()?;
+        let expr = self.or()?;
 
         if let Some(equals) = self.consume_token(TokenType::Equal) {
             let value = self.assignment()?;
@@ -188,6 +188,20 @@ impl Parser {
         } else {
             Ok(expr)
         }
+    }
+
+    fn or(&mut self) -> Result<Expr> {
+        self.parse_binary_operation(
+            &[TokenType::Or],
+            &Self::and,
+        )
+    }
+
+    fn and(&mut self) -> Result<Expr> {
+        self.parse_binary_operation(
+            &[TokenType::And],
+            &Self::equality,
+        )
     }
 
     fn equality(&mut self) -> Result<Expr> {
@@ -286,13 +300,30 @@ impl Parser {
     fn statement(&mut self) -> Result<Option<Stmt>> {
         if self.peek().is_none() {
             Ok(None)
-        } else if self.consume_token(Print).is_some() {
+        } else if self.consume_token(TokenType::If).is_some() {
+            Ok(Some(self.if_statement()?))
+        } else if self.consume_token(TokenType::Print).is_some() {
             Ok(Some(self.print_statement()?))
-        } else if self.consume_token(LeftBrace).is_some() {
+        } else if self.consume_token(TokenType::LeftBrace).is_some() {
             Ok(Some(Stmt::Block(self.block()?)))
         } else {
             Ok(Some(self.expression_statement()?))
         }
+    }
+
+    fn if_statement(&mut self) -> Result<Stmt> {
+        self.consume_token_expect(TokenType::LeftParen)?;
+        let condition = self.expression()?;
+        self.consume_token_expect(TokenType::RightParen)?;
+
+        let then_branch = self.statement()?.ok_or(UnexpectedEOF)?;
+        let else_branch = if self.consume_token(TokenType::Else).is_some() {
+            Some(Box::new(self.statement()?.ok_or(UnexpectedEOF)?))
+        } else {
+            None
+        };
+
+        Ok(Stmt::If(condition, Box::new(then_branch), else_branch))
     }
 
     fn print_statement(&mut self) -> Result<Stmt> {

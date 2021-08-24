@@ -96,38 +96,52 @@ impl Interpreter {
         Ok(())
     }
 
-    fn execute(&mut self, stmt: Stmt) -> Result<()> {
+    fn execute(&mut self, stmt: Stmt) -> Result<Value> {
         match stmt {
             Stmt::Expression(expr) => {
-                let _val = self.evaluate(expr)?;
-                Ok(())
+                let val = self.evaluate(expr)?;
+                Ok(val)
             }
             Stmt::Print(expr) => {
                 let val = self.evaluate(expr)?;
-                println!("{:?}", val);
-                Ok(())
+                println!("{:?}", val.clone());
+                Ok(val)
             }
             Stmt::Var(name, initializer) => {
                 let mut value = Value::Nil;
                 if let Some(initializer) = initializer {
                     value = self.evaluate(initializer)?;
                 }
-                self.environment.borrow_mut().define(name, value)?;
-                Ok(())
+                self.environment.borrow_mut().define(name, value.clone())?;
+                Ok(value)
             }
-            Stmt::Block(statements) => self.execute_stmts_in_environment(statements, Environment::local(Rc::clone(&self.environment)))
+            Stmt::Block(statements) => self.execute_stmts_in_environment(statements, Environment::local(Rc::clone(&self.environment))),
+            Stmt::If(condition, then_branch, else_branch) => {
+                let condition = self.evaluate(condition)?;
+                let mut value = Value::Nil;
+
+                if booleanize(&condition) {
+                    value = self.execute(*then_branch)?;
+                } else if let Some(else_branch) = else_branch {
+                    value = self.execute(*else_branch)?;
+                }
+
+                Ok(value)
+            }
         }
     }
 
-    fn execute_stmts(&mut self, statements: Vec<Stmt>) -> Result<()> {
+    fn execute_stmts(&mut self, statements: Vec<Stmt>) -> Result<Value> {
+        let mut value = Value::Nil;
+
         for statement in statements {
-            self.execute(statement)?
-        }
+            value = self.execute(statement)?
+        };
 
-        Ok(())
+        Ok(value)
     }
 
-    fn execute_stmts_in_environment(&mut self, statements: Vec<Stmt>, environment: Environment) -> Result<()> {
+    fn execute_stmts_in_environment(&mut self, statements: Vec<Stmt>, environment: Environment) -> Result<Value> {
         let old = Rc::clone(&self.environment);
         self.environment = Rc::new(RefCell::new(environment));
         let result = self.execute_stmts(statements);
@@ -169,6 +183,23 @@ impl Interpreter {
 
     fn evaluate_binary(&mut self, left: Expr, op: BinaryOperator, right: Expr) -> Result<Value> {
         let left = self.evaluate(left)?;
+        let left_bool = booleanize(&left);
+        // Handle short-circuiting
+        // TODO: simplify this
+        if let BinaryOperator::Or = op {
+            return if left_bool {
+                Ok(left)
+            } else {
+                Ok(self.evaluate(right)?)
+            }
+        } else if let BinaryOperator::And = op {
+            return if !left_bool {
+                Ok(left)
+            } else {
+                Ok(self.evaluate(right)?)
+            }
+        }
+
         let right = self.evaluate(right)?;
         match op {
             BinaryOperator::Add => match left {
@@ -176,7 +207,6 @@ impl Interpreter {
                 Value::String(left) => Ok(Value::String(left + &*require_string(&right)?)),
                 _ => Err(WrongOperator),
             },
-
             BinaryOperator::Subtract => Ok(Value::Number(
                 require_number(&left)? + require_number(&right)?,
             )),
@@ -198,8 +228,8 @@ impl Interpreter {
             BinaryOperator::GreaterEqual => compare(left, right, &Ordering::is_ge),
             BinaryOperator::Equal => compare(left, right, &Ordering::is_eq),
             BinaryOperator::NotEqual => compare(left, right, &Ordering::is_ne),
-            BinaryOperator::And => Ok(Value::Boolean(booleanize(left) && booleanize(right))),
-            BinaryOperator::Or => Ok(Value::Boolean(booleanize(left) || booleanize(right))),
+            BinaryOperator::And => unreachable!(),
+            BinaryOperator::Or => unreachable!(),
         }
     }
 }
@@ -216,12 +246,12 @@ fn require_boolean(val: &Value) -> Result<bool> {
     val.require_boolean().ok_or(WrongType)
 }
 
-fn booleanize(val: Value) -> bool {
+fn booleanize(val: &Value) -> bool {
     match val {
         Value::Nil => false,
-        Value::Number(n) => n == 0.0,
+        Value::Number(n) => n == &0.0,
         Value::String(s) => s.is_empty(),
-        Value::Boolean(b) => b,
+        Value::Boolean(b) => *b,
     }
 }
 
