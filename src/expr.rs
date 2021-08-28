@@ -1,11 +1,28 @@
+use crate::token::Location;
+
 #[derive(Debug, PartialEq)]
-pub enum Expr {
+pub enum ExprType {
     Binary(Box<Expr>, BinaryOperator, Box<Expr>),
     Grouping(Box<Expr>),
     Literal(Literal),
     Unary(UnaryOperator, Box<Expr>),
     Variable(String),
     Assign(String, Box<Expr>),
+}
+
+#[derive(Debug, PartialEq)]
+pub struct Expr {
+    pub expr_type: ExprType,
+    pub location: Location,
+}
+
+impl Expr {
+    pub fn new(expr_type: ExprType, location: Location) -> Self {
+        Self {
+            expr_type,
+            location,
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Clone, Copy)]

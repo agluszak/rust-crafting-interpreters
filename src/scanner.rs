@@ -27,6 +27,8 @@ static KEYWORDS: phf::Map<&'static str, TokenType> = phf_map! {
     "while" => While,
 };
 
+// TODO: impl Error
+// TODO: split into type and location
 #[derive(Debug, PartialEq)]
 pub enum ScannerError {
     UnclosedString,

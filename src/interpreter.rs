@@ -4,19 +4,36 @@ use std::collections::HashMap;
 use std::ops::{Neg, Not};
 use std::rc::Rc;
 
-use crate::expr::{BinaryOperator, Expr, Literal, UnaryOperator};
-use crate::interpreter::RuntimeError::{DivideByZero, NumberComparisonError, UndefinedVariable, WrongOperator, WrongType};
+use crate::expr::{BinaryOperator, Expr, ExprType, Literal, UnaryOperator};
 use crate::stmt::Stmt;
 use crate::value::Value;
+use crate::token::Location;
 
+// TODO: impl Error
 #[derive(Debug, PartialEq)]
-pub enum RuntimeError {
+pub enum RuntimeErrorType {
     WrongType,
     // TODO: Add location info
     NumberComparisonError(f64, f64),
     DivideByZero,
     WrongOperator,
-    UndefinedVariable,
+    UndefinedVariable(String),
+}
+
+#[derive(Debug, PartialEq)]
+pub struct RuntimeError {
+    error_type: RuntimeErrorType,
+    location: Location
+}
+
+impl RuntimeError {
+    fn new(error_type: RuntimeErrorType,
+           location: Location) -> Self {
+        Self {
+            error_type,
+            location
+        }
+    }
 }
 
 type Result<T> = std::result::Result<T, RuntimeError>;
@@ -58,7 +75,8 @@ impl Environment {
             if let Some(enclosing) = &self.enclosing {
                 enclosing.borrow_mut().assign(name, value)
             } else {
-                Err(RuntimeError::UndefinedVariable)
+                Err(RuntimeError::new(RuntimeErrorType::UndefinedVariable(name), Location::initial()))
+                // TODO: Actual location
             }
         }
     }
@@ -72,7 +90,8 @@ impl Environment {
             } else {
                 maybe_value
             };
-        maybe_value.ok_or(UndefinedVariable)
+        // TODO: proper location
+        maybe_value.ok_or(RuntimeError::new(RuntimeErrorType::UndefinedVariable(name.to_string()), Location::initial()))
     }
 }
 
@@ -150,13 +169,13 @@ impl Interpreter {
     }
 
     fn evaluate(&mut self, expr: Expr) -> Result<Value> {
-        match expr {
-            Expr::Binary(left, op, right) => self.evaluate_binary(*left, op, *right),
-            Expr::Grouping(expr) => self.evaluate(*expr),
-            Expr::Literal(literal) => Self::evaluate_literal(literal),
-            Expr::Unary(op, expr) => self.evaluate_unary(op, *expr),
-            Expr::Variable(name) => self.environment.borrow().get(&*name),
-            Expr::Assign(variable, expr) => {
+        match expr.expr_type {
+            ExprType::Binary(left, op, right) => self.evaluate_binary(*left, op, *right),
+            ExprType::Grouping(expr) => self.evaluate(*expr),
+            ExprType::Literal(literal) => Self::evaluate_literal(literal),
+            ExprType::Unary(op, expr) => self.evaluate_unary(op, *expr),
+            ExprType::Variable(name) => self.environment.borrow().get(&*name),
+            ExprType::Assign(variable, expr) => {
                 let value = self.evaluate(*expr)?;
                 self.environment.borrow_mut().assign(variable, value.clone())?;
                 Ok(value)
@@ -191,13 +210,13 @@ impl Interpreter {
                 Ok(left)
             } else {
                 Ok(self.evaluate(right)?)
-            }
+            };
         } else if let BinaryOperator::And = op {
             return if !left_bool {
                 Ok(left)
             } else {
                 Ok(self.evaluate(right)?)
-            }
+            };
         }
 
         let right = self.evaluate(right)?;
@@ -205,7 +224,8 @@ impl Interpreter {
             BinaryOperator::Add => match left {
                 Value::Number(left) => Ok(Value::Number(left + require_number(&right)?)),
                 Value::String(left) => Ok(Value::String(left + &*require_string(&right)?)),
-                _ => Err(WrongOperator),
+                // TODO: proper location
+                _ => Err(RuntimeError::new(RuntimeErrorType::WrongOperator, Location::initial())),
             },
             BinaryOperator::Subtract => Ok(Value::Number(
                 require_number(&left)? + require_number(&right)?,
@@ -217,7 +237,8 @@ impl Interpreter {
                 let left = require_number(&left)?;
                 let right = require_number(&right)?;
                 if right == 0.0 {
-                    Err(DivideByZero)
+                    // TODO: proper location
+                    Err(RuntimeError::new(RuntimeErrorType::DivideByZero, Location::initial()))
                 } else {
                     Ok(Value::Number(left / right))
                 }
@@ -235,15 +256,18 @@ impl Interpreter {
 }
 
 fn require_string(val: &Value) -> Result<String> {
-    val.require_string().ok_or(WrongType)
+    // TODO: proper location
+    val.require_string().ok_or(RuntimeError::new(RuntimeErrorType::WrongType, Location::initial()))
 }
 
 fn require_number(val: &Value) -> Result<f64> {
-    val.require_number().ok_or(WrongType)
+    // TODO: proper location
+    val.require_number().ok_or(RuntimeError::new(RuntimeErrorType::WrongType, Location::initial()))
 }
 
 fn require_boolean(val: &Value) -> Result<bool> {
-    val.require_boolean().ok_or(WrongType)
+    // TODO: proper location
+    val.require_boolean().ok_or(RuntimeError::new(RuntimeErrorType::WrongType, Location::initial()))
 }
 
 fn booleanize(val: &Value) -> bool {
@@ -261,11 +285,13 @@ fn compare(left: Value, right: Value, f: impl Fn(Ordering) -> bool) -> Result<Va
         Value::Number(left) => {
             let right = require_number(&right)?;
             left.partial_cmp(&right)
-                .ok_or(NumberComparisonError(left, right))
+                .ok_or(RuntimeError::new(RuntimeErrorType::NumberComparisonError(left, right), Location::initial()))
+            // TODO: actual location
         }
         Value::String(left) => Ok(left.cmp(&require_string(&right)?)),
         Value::Boolean(left) => Ok(left.cmp(&require_boolean(&right)?)),
-        _ => Err(WrongType), // TODO: more specific error
+        _ => Err(RuntimeError::new(RuntimeErrorType::WrongType, Location::initial()))
+        // TODO: actual location
     }?;
 
     Ok(Value::Boolean(f(ordering)))
@@ -275,14 +301,16 @@ fn compare(left: Value, right: Value, f: impl Fn(Ordering) -> bool) -> Result<Va
 mod tests {
     use crate::interpreter::Interpreter;
     use crate::stmt::Stmt;
+    use crate::token::Location;
 
     #[test]
     fn interpreter_test() {
-        use crate::expr::Expr::Literal;
+        use crate::expr::Expr;
+        use crate::expr::ExprType::Literal;
         use crate::expr::Literal::Number;
 
         let mut interpreter = Interpreter::new();
-        let set_x = Stmt::Var("x".to_string(), Some(Literal(Number(2.0))));
+        let set_x = Stmt::Var("x".to_string(), Some(Expr::new(Literal(Number(2.0)), Location::new(3, 4))));
 
         // assert_eq!(interpreter.evaluate(Expr::Variable("x".to_string())), Err(UndefinedVariable));
         // interpreter.execute(set_x);

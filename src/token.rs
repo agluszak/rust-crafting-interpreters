@@ -1,3 +1,5 @@
+use crate::expr::{BinaryOperator, Literal, UnaryOperator};
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum TokenType {
     // Single-character tokens.
@@ -48,9 +50,53 @@ pub enum TokenType {
 }
 
 impl TokenType {
-    pub(crate) fn is_same_variant(&self, other: &Self) -> bool {
+    pub fn is_same_variant(&self, other: &Self) -> bool {
         use std::mem::discriminant;
         discriminant(self) == discriminant(other)
+    }
+
+    pub fn to_binary_operator(&self) -> BinaryOperator {
+        use BinaryOperator::*;
+        match &self {
+            TokenType::BangEqual => NotEqual,
+            TokenType::EqualEqual => Equal,
+            TokenType::Greater => Greater,
+            TokenType::GreaterEqual => GreaterEqual,
+            TokenType::Less => Less,
+            TokenType::LessEqual => LessEqual,
+            TokenType::Minus => Subtract,
+            TokenType::Plus => Add,
+            TokenType::Slash => Divide,
+            TokenType::Star => Multiply,
+            _ => unreachable!(),
+        }
+    }
+
+    pub fn to_unary_operator(&self) -> UnaryOperator {
+        use UnaryOperator::*;
+        match &self {
+            TokenType::Bang => BooleanNegate,
+            TokenType::Minus => NumericNegate,
+            _ => unreachable!(),
+        }
+    }
+
+    pub fn to_literal(&self) -> Literal {
+        use Literal::*;
+        match &self {
+            TokenType::String(s) => String(s.clone()), // TODO: get rid of this clone?
+            TokenType::Number(n) => Number(*n),
+            TokenType::True => Boolean(true),
+            TokenType::False => Boolean(false),
+            _ => unreachable!(),
+        }
+    }
+
+    pub fn to_variable(&self) -> String {
+        match &self {
+            TokenType::Identifier(name) => name.clone(),
+            _ => unreachable!()
+        }
     }
 }
 

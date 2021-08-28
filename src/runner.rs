@@ -6,6 +6,7 @@ use crate::interpreter::{Interpreter, RuntimeError};
 use crate::parser::{Parser, ParserError};
 use crate::scanner::{Scanner, ScannerError};
 
+// TODO: impl Error
 #[derive(Debug)]
 pub enum RunnerError {
     ScannerError(Vec<ScannerError>),

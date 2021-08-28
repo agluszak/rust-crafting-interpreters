@@ -1,28 +1,38 @@
 use std::collections::VecDeque;
+use std::error::Error;
 
-use crate::expr::{BinaryOperator, Expr, Literal, UnaryOperator};
-use crate::expr::BinaryOperator::*;
-use crate::expr::Expr::{Binary, Grouping, Unary};
-use crate::expr::Literal::{Boolean, Number};
-use crate::expr::UnaryOperator::{BooleanNegate, NumericNegate};
-use crate::parser::ParserError::{MissingExpectedToken, UnexpectedEOF};
+use crate::expr::{BinaryOperator, Expr, ExprType, Literal, UnaryOperator};
 use crate::stmt::Stmt;
-use crate::token::{Token, TokenType};
-use crate::token::TokenType::{Identifier, LeftBrace, Print, RightBrace, Semicolon, Var};
+use crate::token::{Location, Token, TokenType};
 
 #[derive(Debug, PartialEq)]
-pub enum ParserError {
+pub enum ParserErrorType {
     UnexpectedEOF,
     MissingExpectedToken(TokenType),
-    // TODO: report location
     InvalidAssignmentTarget,
+}
+
+// TODO: impl Error for ParserError
+// TODO: return multiple errors
+#[derive(Debug, PartialEq)]
+pub struct ParserError {
+    error_type: ParserErrorType,
+    location: Location,
+}
+
+impl ParserError {
+    fn new(error_type: ParserErrorType, location: Location) -> Self {
+        Self {
+            error_type,
+            location,
+        }
+    }
 }
 
 type Result<T> = std::result::Result<T, ParserError>;
 
 // TODO: separate parser logic (i.e. grammar) from the scanning logic
-pub struct Parser
-{
+pub struct Parser {
     src: VecDeque<Token>,
 }
 
@@ -52,8 +62,9 @@ impl Parser {
     }
 
     fn consume_token_expect(&mut self, expected: TokenType) -> Result<Token> {
+        // TODO: proper location
         self.consume_token(expected.clone())
-            .ok_or(MissingExpectedToken(expected))
+            .ok_or(ParserError::new(ParserErrorType::MissingExpectedToken(expected), Location::initial()))
     }
 
     pub fn consume_one_of(&mut self, expected_types: &[TokenType]) -> Option<Token> {
@@ -84,52 +95,12 @@ impl Parser {
 
     // TODO: Try to get rid of this
     fn synchronize(&mut self) {
+        use TokenType::Semicolon;
         self.advance_while(|token| !token.token_type.is_same_variant(&Semicolon));
         self.consume_token(Semicolon);
     }
 
     // Helper methods
-
-    fn token_type_to_binary_operator(token_type: &TokenType) -> BinaryOperator {
-        match token_type {
-            TokenType::BangEqual => NotEqual,
-            TokenType::EqualEqual => Equal,
-            TokenType::Greater => Greater,
-            TokenType::GreaterEqual => GreaterEqual,
-            TokenType::Less => Less,
-            TokenType::LessEqual => LessEqual,
-            TokenType::Minus => Subtract,
-            TokenType::Plus => Add,
-            TokenType::Slash => Divide,
-            TokenType::Star => Multiply,
-            _ => unreachable!(),
-        }
-    }
-
-    fn token_type_to_unary_operator(token_type: &TokenType) -> UnaryOperator {
-        match token_type {
-            TokenType::Bang => BooleanNegate,
-            TokenType::Minus => NumericNegate,
-            _ => unreachable!(),
-        }
-    }
-
-    fn token_type_to_literal(token_type: &TokenType) -> Literal {
-        match token_type {
-            TokenType::String(s) => Literal::String(s.clone()), // TODO: get rid of this clone?
-            TokenType::Number(n) => Number(*n),
-            TokenType::True => Boolean(true),
-            TokenType::False => Boolean(false),
-            _ => unreachable!(),
-        }
-    }
-
-    fn token_type_to_variable(token_type: &TokenType) -> String {
-        match token_type {
-            TokenType::Identifier(name) => name.clone(),
-            _ => unreachable!()
-        }
-    }
 
     fn parse_binary_operation<ParseFunction>(
         &mut self,
@@ -141,10 +112,11 @@ impl Parser {
     {
         let mut expr = higher_precedence_parser(self)?;
         while let Some(operator_token) = self.consume_one_of(token_types) {
+            let location = operator_token.location;
             let token_type = &operator_token.token_type.clone();
             let right = higher_precedence_parser(self)?;
-            let operator = Self::token_type_to_binary_operator(token_type);
-            expr = Binary(Box::new(expr), operator, Box::new(right))
+            let operator = token_type.to_binary_operator();
+            expr = Expr::new(ExprType::Binary(Box::new(expr), operator, Box::new(right)), location);
         }
 
         Ok(expr)
@@ -161,8 +133,8 @@ impl Parser {
         if let Some(operator_token) = self.consume_one_of(token_types) {
             let token_type = &operator_token.token_type.clone();
             let right = higher_precedence_parser(self)?;
-            let operator = Self::token_type_to_unary_operator(token_type);
-            return Ok(Unary(operator, Box::new(right)));
+            let operator = token_type.to_unary_operator();
+            return Ok(Expr::new(ExprType::Unary(operator, Box::new(right)), operator_token.location));
         }
 
         higher_precedence_parser(self)
@@ -180,11 +152,11 @@ impl Parser {
         if let Some(equals) = self.consume_token(TokenType::Equal) {
             let value = self.assignment()?;
 
-            if let Expr::Variable(variable) = expr {
-                return Ok(Expr::Assign(variable, Box::new(value)));
+            if let ExprType::Variable(variable) = expr.expr_type {
+                return Ok(Expr::new(ExprType::Assign(variable, Box::new(value)), equals.location));
             }
 
-            Err(ParserError::InvalidAssignmentTarget)
+            Err(ParserError::new(ParserErrorType::InvalidAssignmentTarget, equals.location))
         } else {
             Ok(expr)
         }
@@ -236,27 +208,28 @@ impl Parser {
     }
 
     fn primary(&mut self) -> Result<Expr> {
-        if let Some(operator_token) = self.consume_one_of(&[
+        if let Some(token) = self.consume_one_of(&[
             TokenType::False,
             TokenType::True,
             TokenType::Number(0.0),
             TokenType::String("".to_string()),
         ]) {
-            let literal = Self::token_type_to_literal(&operator_token.token_type);
-            return Ok(Expr::Literal(literal));
+            let literal = token.token_type.to_literal();
+            return Ok(Expr::new(ExprType::Literal(literal), token.location));
         }
 
-        if let Some(_) = self.consume_token(TokenType::LeftParen) {
+        if let Some(paren) = self.consume_token(TokenType::LeftParen) {
             let expr = self.expression()?;
             self.consume_token_expect(TokenType::RightParen)?;
-            return Ok(Grouping(Box::new(expr)));
+            return Ok(Expr::new(ExprType::Grouping(Box::new(expr)), paren.location));
         }
 
         if let Some(identifier) = self.consume_token(TokenType::Identifier("".to_string())) {
-            return Ok(Expr::Variable(Self::token_type_to_variable(&identifier.token_type)));
+            return Ok(Expr::new(ExprType::Variable(identifier.token_type.to_variable()), identifier.location));
         }
 
-        return Err(UnexpectedEOF);
+        // TODO: proper location
+        return Err(ParserError::new(ParserErrorType::UnexpectedEOF, Location::initial()));
     }
 
     // Statement parsing methods
@@ -274,7 +247,7 @@ impl Parser {
 
     // TODO: Clean up logic
     fn declaration(&mut self) -> Result<Option<Stmt>> {
-        match if self.consume_token(Var).is_some() {
+        match if self.consume_token(TokenType::Var).is_some() {
             self.var_declaration()
         } else {
             self.statement()
@@ -288,13 +261,13 @@ impl Parser {
     }
 
     fn var_declaration(&mut self) -> Result<Option<Stmt>> {
-        let name = Self::token_type_to_variable(&self.consume_token_expect(Identifier("".to_string()))?.token_type);
+        let name = self.consume_token_expect(TokenType::Identifier("".to_string()))?.token_type.to_variable();
         let mut initializer = None;
         if self.consume_token(TokenType::Equal).is_some() {
             initializer = Some(self.expression()?);
         }
-        self.consume_token_expect(Semicolon)?;
-        Ok(Some(Stmt::Var(name.clone(), initializer)))
+        self.consume_token_expect(TokenType::Semicolon)?;
+        Ok(Some(Stmt::Var(name, initializer)))
     }
 
     fn statement(&mut self) -> Result<Option<Stmt>> {
@@ -316,9 +289,10 @@ impl Parser {
         let condition = self.expression()?;
         self.consume_token_expect(TokenType::RightParen)?;
 
-        let then_branch = self.statement()?.ok_or(UnexpectedEOF)?;
+        // TODO: proper location
+        let then_branch = self.statement()?.ok_or(ParserError::new(ParserErrorType::UnexpectedEOF, Location::initial()))?;
         let else_branch = if self.consume_token(TokenType::Else).is_some() {
-            Some(Box::new(self.statement()?.ok_or(UnexpectedEOF)?))
+            Some(Box::new(self.statement()?.ok_or(ParserError::new(ParserErrorType::UnexpectedEOF, Location::initial()))?))
         } else {
             None
         };
@@ -328,24 +302,26 @@ impl Parser {
 
     fn print_statement(&mut self) -> Result<Stmt> {
         let expression = self.expression()?;
-        self.consume_token_expect(Semicolon)?;
+        self.consume_token_expect(TokenType::Semicolon)?;
         Ok(Stmt::Print(expression))
     }
 
     fn block(&mut self) -> Result<Vec<Stmt>> {
         let mut statements = Vec::new();
 
-        while self.peek().filter(|token| token.token_type != RightBrace).is_some() {
-            statements.push(self.declaration()?.ok_or(ParserError::UnexpectedEOF)?)
+        while let Some(token) = self.peek().filter(|token| token.token_type != TokenType::RightBrace) {
+            let location = token.location;
+            let stmt = self.declaration()?.ok_or(ParserError::new(ParserErrorType::UnexpectedEOF, location))?;
+            statements.push(stmt)
         }
 
-        self.consume_token_expect(RightBrace)?;
+        self.consume_token_expect(TokenType::RightBrace)?;
         Ok(statements)
     }
 
     fn expression_statement(&mut self) -> Result<Stmt> {
         let expression = self.expression()?;
-        self.consume_token_expect(Semicolon)?;
+        self.consume_token_expect(TokenType::Semicolon)?;
         Ok(Stmt::Expression(expression))
     }
 }
@@ -358,11 +334,8 @@ pub fn parse(tokens: Vec<Token>) -> Result<Vec<Stmt>> {
 
 #[cfg(test)]
 mod tests {
-    use crate::expr::Expr;
+    use crate::expr::{Expr, ExprType, UnaryOperator, Literal};
     use crate::expr::BinaryOperator::*;
-    use crate::expr::Expr::{Binary, Grouping, Unary};
-    use crate::expr::Literal::Number;
-    use crate::expr::UnaryOperator::NumericNegate;
     use crate::parser::{Parser, ParserError};
     use crate::stmt::Stmt;
     use crate::token::{Location, Token, TokenType};
@@ -377,6 +350,16 @@ mod tests {
     // ),
     // ),
     // )
+
+    // 2 = 3;
+
+    // var x = var;
+
+    // = 3;
+
+
+
+
 
     fn parser_test(tokens: Vec<Token>, expected_result: Result<Vec<Stmt>, ParserError>) {
         let mut parser = Parser::new();
@@ -400,18 +383,15 @@ mod tests {
             Token::new(Semicolon, ";".to_string(), Location::new(1, 13)),
         ];
 
-        let expected_expr = Binary(
-            Box::from(Expr::Literal(Number(1.0))),
+        let expected_expr = Expr::new(ExprType::Binary(
+            Box::from(Expr::new(ExprType::Literal(Literal::Number(1.0)), Location::new(1, 1))),
             Add,
-            Box::from(Binary(
-                Box::from(Expr::Literal(Number(2.0))),
+            Box::from(Expr::new(ExprType::Binary(
+                Box::from(Expr::new(ExprType::Literal(Literal::Number(2.0)), Location::new(1, 5))),
                 Multiply,
-                Box::from(Grouping(Box::from(Unary(
-                    NumericNegate,
-                    Box::from(Expr::Literal(Number(3.0))),
-                )))),
-            )),
-        );
+                Box::from(Expr::new(ExprType::Grouping(Box::from(Expr::new(ExprType::Unary(
+                    UnaryOperator::NumericNegate,
+                    Box::from(Expr::new(ExprType::Literal(Literal::Number(3.0)), Location::new(1, 11)))), Location::new(1, 10)))), Location::new(1, 9)))), Location::new(1, 7)))), Location::new(1, 3));
 
         let expected_result = Ok(vec![Stmt::Expression(expected_expr)]);
 
