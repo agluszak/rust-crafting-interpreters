@@ -107,7 +107,7 @@ impl Interpreter {
     }
 
 
-    pub fn interpret(&mut self, statements: Vec<Stmt>) -> Result<()> {
+    pub fn interpret(&mut self, statements: &Vec<Stmt>) -> Result<()> {
         for statement in statements {
             self.execute(statement)?;
         }
@@ -115,7 +115,7 @@ impl Interpreter {
         Ok(())
     }
 
-    fn execute(&mut self, stmt: Stmt) -> Result<Value> {
+    fn execute(&mut self, stmt: &Stmt) -> Result<Value> {
         match stmt {
             Stmt::Expression(expr) => {
                 let val = self.evaluate(expr)?;
@@ -131,7 +131,7 @@ impl Interpreter {
                 if let Some(initializer) = initializer {
                     value = self.evaluate(initializer)?;
                 }
-                self.environment.borrow_mut().define(name, value.clone())?;
+                self.environment.borrow_mut().define(name.clone(), value.clone())?;
                 Ok(value)
             }
             Stmt::Block(statements) => self.execute_stmts_in_environment(statements, Environment::local(Rc::clone(&self.environment))),
@@ -140,17 +140,24 @@ impl Interpreter {
                 let mut value = Value::Nil;
 
                 if booleanize(&condition) {
-                    value = self.execute(*then_branch)?;
+                    value = self.execute(&**then_branch)?;
                 } else if let Some(else_branch) = else_branch {
-                    value = self.execute(*else_branch)?;
+                    value = self.execute(&**else_branch)?;
                 }
 
+                Ok(value)
+            }
+            Stmt::While(condition, stmt) => {
+                let mut value = Value::Nil;
+                while booleanize(&self.evaluate(condition)?) {
+                    value = self.execute(stmt)?;
+                }
                 Ok(value)
             }
         }
     }
 
-    fn execute_stmts(&mut self, statements: Vec<Stmt>) -> Result<Value> {
+    fn execute_stmts(&mut self, statements: &Vec<Stmt>) -> Result<Value> {
         let mut value = Value::Nil;
 
         for statement in statements {
@@ -160,7 +167,7 @@ impl Interpreter {
         Ok(value)
     }
 
-    fn execute_stmts_in_environment(&mut self, statements: Vec<Stmt>, environment: Environment) -> Result<Value> {
+    fn execute_stmts_in_environment(&mut self, statements: &Vec<Stmt>, environment: Environment) -> Result<Value> {
         let old = Rc::clone(&self.environment);
         self.environment = Rc::new(RefCell::new(environment));
         let result = self.execute_stmts(statements);
@@ -168,31 +175,31 @@ impl Interpreter {
         result
     }
 
-    fn evaluate(&mut self, expr: Expr) -> Result<Value> {
-        match expr.expr_type {
-            ExprType::Binary(left, op, right) => self.evaluate_binary(*left, op, *right),
-            ExprType::Grouping(expr) => self.evaluate(*expr),
+    fn evaluate(&mut self, expr: &Expr) -> Result<Value> {
+        match &expr.expr_type {
+            ExprType::Binary(left, op, right) => self.evaluate_binary(&**left, *op, &**right),
+            ExprType::Grouping(expr) => self.evaluate(&*expr),
             ExprType::Literal(literal) => Self::evaluate_literal(literal),
-            ExprType::Unary(op, expr) => self.evaluate_unary(op, *expr),
+            ExprType::Unary(op, expr) => self.evaluate_unary(op, expr),
             ExprType::Variable(name) => self.environment.borrow().get(&*name),
             ExprType::Assign(variable, expr) => {
-                let value = self.evaluate(*expr)?;
-                self.environment.borrow_mut().assign(variable, value.clone())?;
+                let value = self.evaluate(&*expr)?;
+                self.environment.borrow_mut().assign(variable.clone(), value.clone())?;
                 Ok(value)
             }
         }
     }
 
-    fn evaluate_literal(literal: Literal) -> Result<Value> {
+    fn evaluate_literal(literal: &Literal) -> Result<Value> {
         match literal {
-            Literal::String(s) => Ok(Value::String(s)),
-            Literal::Number(n) => Ok(Value::Number(n)),
-            Literal::Boolean(b) => Ok(Value::Boolean(b)),
+            Literal::String(s) => Ok(Value::String(s.clone())),
+            Literal::Number(n) => Ok(Value::Number(*n)),
+            Literal::Boolean(b) => Ok(Value::Boolean(*b)),
             Literal::Nil => Ok(Value::Nil),
         }
     }
 
-    fn evaluate_unary(&mut self, op: UnaryOperator, expr: Expr) -> Result<Value> {
+    fn evaluate_unary(&mut self, op: &UnaryOperator, expr: &Expr) -> Result<Value> {
         let val = self.evaluate(expr)?;
         match op {
             UnaryOperator::BooleanNegate => require_boolean(&val).map(&bool::not).map(&Value::Boolean),
@@ -200,7 +207,7 @@ impl Interpreter {
         }
     }
 
-    fn evaluate_binary(&mut self, left: Expr, op: BinaryOperator, right: Expr) -> Result<Value> {
+    fn evaluate_binary(&mut self, left: &Expr, op: BinaryOperator, right: &Expr) -> Result<Value> {
         let left = self.evaluate(left)?;
         let left_bool = booleanize(&left);
         // Handle short-circuiting

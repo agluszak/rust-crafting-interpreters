@@ -143,7 +143,7 @@ impl Parser {
     // Expression parsing methods
 
     fn expression(&mut self) -> Result<Expr> {
-        self.equality()
+        self.assignment()
     }
 
     fn assignment(&mut self) -> Result<Expr> {
@@ -277,6 +277,10 @@ impl Parser {
             Ok(Some(self.if_statement()?))
         } else if self.consume_token(TokenType::Print).is_some() {
             Ok(Some(self.print_statement()?))
+        } else if self.consume_token(TokenType::While).is_some() {
+            Ok(Some(self.while_statement()?))
+        } else if self.consume_token(TokenType::For).is_some() {
+            Ok(Some(self.for_statement()?))
         } else if self.consume_token(TokenType::LeftBrace).is_some() {
             Ok(Some(Stmt::Block(self.block()?)))
         } else {
@@ -304,6 +308,70 @@ impl Parser {
         let expression = self.expression()?;
         self.consume_token_expect(TokenType::Semicolon)?;
         Ok(Stmt::Print(expression))
+    }
+
+    fn while_statement(&mut self) -> Result<Stmt> {
+        self.consume_token_expect(TokenType::LeftParen)?;
+        let condition = self.expression()?;
+        self.consume_token_expect(TokenType::RightParen)?;
+
+        // TODO: proper location
+        let stmt = self.statement()?.ok_or(ParserError::new(ParserErrorType::UnexpectedEOF, Location::initial()))?;
+
+        Ok(Stmt::While(condition, Box::new(stmt)))
+    }
+
+    fn for_statement(&mut self) -> Result<Stmt> {
+        self.consume_token_expect(TokenType::LeftParen)?;
+
+        let initializer = if self.consume_token(TokenType::Semicolon).is_some() {
+            None
+        } else if self.consume_token(TokenType::Var).is_some() {
+            Some(self.var_declaration()?).flatten()
+        } else {
+            Some(self.expression_statement()?)
+        };
+
+        let condition = if self.consume_token(TokenType::Semicolon).is_some() {
+            None
+        } else {
+            Some(self.expression()?)
+        };
+
+        if condition.is_some() {
+            self.consume_token_expect(TokenType::Semicolon)?;
+        }
+
+        let increment = if self.consume_token(TokenType::RightParen).is_some() {
+            None
+        } else {
+            Some(self.expression()?)
+        };
+
+        if increment.is_some() {
+            self.consume_token_expect(TokenType::RightParen)?;
+        }
+
+        let mut body = self.statement()?.ok_or(ParserError::new(ParserErrorType::UnexpectedEOF, Location::initial()))?;
+
+        if let Some(increment) = increment {
+            body = Stmt::Block(vec![body, Stmt::Expression(increment)]);
+        }
+
+        let condition = if let Some(condition) = condition {
+            condition
+        } else {
+            // TODO: does it really matter that there's no real position in this case?
+            Expr::new(ExprType::Literal(Literal::Boolean(true)), Location::initial())
+        };
+
+        body = Stmt::While(condition, Box::new(body));
+
+        if let Some(initializer) = initializer {
+            body = Stmt::Block(vec![initializer, body]);
+        }
+
+        Ok(body)
     }
 
     fn block(&mut self) -> Result<Vec<Stmt>> {

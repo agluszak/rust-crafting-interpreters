@@ -34,16 +34,17 @@ impl Runner {
     pub fn run(&mut self, source: String) -> Result<()> {
         self.scanner.append(source);
         let tokens = self.scanner.scan_tokens().map_err(&RunnerError::ScannerError)?;
+        // println!("{:#?}", tokens);
 
         self.parser.append(tokens);
         let ast = self.parser.program().map_err(&RunnerError::ParserError)?;
-        // println!("{:#?}", ast);
+        println!("{:#?}", ast);
 
-        self.interpreter.interpret(ast).map_err(&RunnerError::RuntimeError)
+        self.interpreter.interpret(&ast).map_err(&RunnerError::RuntimeError)
     }
 
     pub fn run_file(&mut self, path: &str) -> Result<()> {
-        let contents = read_to_string(path).expect("Could not read file");
+        let contents = read_to_string(path).expect(&*("Could not read file ".to_string() + path));
         self.run(contents)
     }
 

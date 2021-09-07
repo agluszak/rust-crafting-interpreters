@@ -285,13 +285,33 @@ mod tests {
     use crate::scanner::ScannerError::{BadCharacter, UnclosedString};
     use crate::token::{Location, Token};
     use crate::token::TokenType::*;
+    use std::fmt::Debug;
+
+    fn compare_vecs<T: Debug + PartialEq>(expected: Vec<T>, actual: Vec<T>) {
+        assert_eq!(expected.len(), actual.len());
+        for (expected, actual) in expected.iter().zip(&actual) {
+            assert_eq!(expected, actual);
+        }
+        assert_eq!(expected, actual);
+    }
 
     fn scanner_test(source: &str, expected_result: Result<Vec<Token>, Vec<ScannerError>>) {
         let mut scanner = Scanner::new();
         scanner.append(source.to_string());
         let result = scanner.scan_tokens();
 
-        assert_eq!(result, expected_result);
+        match expected_result {
+            Ok(expected) => {
+                assert!(result.is_ok());
+                let actual = result.unwrap();
+               compare_vecs(expected, actual);
+            }
+            Err(expected) => {
+                assert!(result.is_err());
+                let actual = result.unwrap_err();
+                compare_vecs(expected, actual);
+            }
+        }
     }
 
     #[test]
@@ -394,5 +414,67 @@ if (true or false) { print _how_are_you; }
         ];
 
         scanner_test("3..14", Ok(expected_tokens))
+    }
+
+    #[test]
+    fn fibonacci() {
+        static SOURCE: &str = r#"var a = 0;
+var temp;
+
+for (var b = 1; a < 10000; b = temp + b) {
+  print a;
+  temp = a;
+  a = b;
+}
+"#;
+
+        let expected_tokens = vec![
+            Token::new(Var, "var".to_string(), Location::new(1, 1)),
+            Token::new(Identifier("a".to_string()), "a".to_string(), Location::new(1, 5)),
+            Token::new(Equal, "=".to_string(), Location::new(1, 7)),
+            Token::new(Number(
+                0.0,
+            ), "0".to_string(), Location::new(1, 9)),
+            Token::new(Semicolon, ";".to_string(), Location::new(1, 10)),
+            Token::new(Var, "var".to_string(), Location::new(2, 1)),
+            Token::new(Identifier("temp".to_string()), "temp".to_string(), Location::new(2, 5)),
+            Token::new(Semicolon, ";".to_string(), Location::new(2, 9)),
+            Token::new(For, "for".to_string(), Location::new(4, 1)),
+            Token::new(LeftParen, "(".to_string(), Location::new(4, 5)),
+            Token::new(Var, "var".to_string(), Location::new(4, 6)),
+            Token::new(Identifier("b".to_string()), "b".to_string(), Location::new(4, 10)),
+            Token::new(Equal, "=".to_string(), Location::new(4, 12)),
+            Token::new(Number(
+                1.0,
+            ), "1".to_string(), Location::new(4, 14)),
+            Token::new(Semicolon, ";".to_string(), Location::new(4, 15)),
+            Token::new(Identifier("a".to_string()), "a".to_string(), Location::new(4, 17)),
+            Token::new(Less, "<".to_string(), Location::new(4, 19)),
+            Token::new(Number(
+                10000.0,
+            ), "10000".to_string(), Location::new(4, 21)),
+            Token::new(Semicolon, ";".to_string(), Location::new(4, 26)),
+            Token::new(Identifier("b".to_string()), "b".to_string(), Location::new(4, 28)),
+            Token::new(Equal, "=".to_string(), Location::new(4, 30)),
+            Token::new(Identifier("temp".to_string()), "temp".to_string(), Location::new(4, 32)),
+            Token::new(Plus, "+".to_string(), Location::new(4, 37)),
+            Token::new(Identifier("b".to_string()), "b".to_string(), Location::new(4, 39)),
+            Token::new(RightParen, ")".to_string(), Location::new(4, 40)),
+            Token::new(LeftBrace, "{".to_string(), Location::new(4, 42)),
+            Token::new(Print, "print".to_string(), Location::new(5, 3)),
+            Token::new(Identifier("a".to_string()), "a".to_string(), Location::new(5, 9)),
+            Token::new(Semicolon, ";".to_string(), Location::new(5, 10)),
+            Token::new(Identifier("temp".to_string()), "temp".to_string(), Location::new(6, 3)),
+            Token::new(Equal, "=".to_string(), Location::new(6, 8)),
+            Token::new(Identifier("a".to_string()), "a".to_string(), Location::new(6, 10)),
+            Token::new(Semicolon, ";".to_string(), Location::new(6, 11)),
+            Token::new(Identifier("a".to_string()), "a".to_string(), Location::new(7, 3)),
+            Token::new(Equal, "=".to_string(), Location::new(7, 5)),
+            Token::new(Identifier("b".to_string()), "b".to_string(), Location::new(7, 7)),
+            Token::new(Semicolon, ";".to_string(), Location::new(7, 8)),
+            Token::new(RightBrace, "}".to_string(), Location::new(8, 1)),
+        ];
+
+        scanner_test(SOURCE, Ok(expected_tokens))
     }
 }
