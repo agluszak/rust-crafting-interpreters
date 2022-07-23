@@ -387,6 +387,8 @@ impl Parser {
             Ok(Some(self.print_statement()?))
         } else if self.consume_token(TokenType::While).is_some() {
             Ok(Some(self.while_statement()?))
+        } else if self.consume_token(TokenType::Return).is_some() {
+            Ok(Some(self.return_statement()?))
         } else if self.consume_token(TokenType::For).is_some() {
             Ok(Some(self.for_statement()?))
         } else if self.consume_token(TokenType::LeftBrace).is_some() {
@@ -419,6 +421,18 @@ impl Parser {
         let expression = self.expression()?;
         self.consume_token_expect(TokenType::Semicolon)?;
         Ok(Stmt::Print(expression))
+    }
+
+    fn return_statement(&mut self) -> Result<Stmt> {
+        let value = if self.consume_token(TokenType::Semicolon).is_some() {
+            None
+        } else {
+            let value = self.expression()?;
+            self.consume_token_expect(TokenType::Semicolon)?;
+            Some(value)
+        };
+
+        Ok(Stmt::Return(value))
     }
 
     fn while_statement(&mut self) -> Result<Stmt> {

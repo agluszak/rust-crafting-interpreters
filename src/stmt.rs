@@ -9,4 +9,5 @@ pub enum Stmt {
     If(Expr, Box<Stmt>, Option<Box<Stmt>>),
     Function(String, Vec<String>, Vec<Stmt>),
     While(Expr, Box<Stmt>),
+    Return(Option<Expr>),
 }

@@ -6,6 +6,7 @@ use std::rc::Rc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::expr::{BinaryOperator, Expr, ExprType, Literal, UnaryOperator};
+use crate::interpreter::RuntimeErrorType::Return;
 use crate::stmt::Stmt;
 use crate::token::Location;
 use crate::value::{Callable, Value};
@@ -18,19 +19,27 @@ pub enum RuntimeErrorType {
     DivideByZero,
     WrongOperator,
     UndefinedVariable(String),
+    Return(Value)
 }
 
 #[derive(Debug, PartialEq)]
 pub struct RuntimeError {
     error_type: RuntimeErrorType,
-    location: Location,
+    location: Option<Location>,
 }
 
 impl RuntimeError {
-    fn new(error_type: RuntimeErrorType, location: Location) -> Self {
+    fn new_with_location(error_type: RuntimeErrorType, location: Location) -> Self {
         Self {
             error_type,
-            location,
+            location: Some(location),
+        }
+    }
+
+    fn new(error_type: RuntimeErrorType) -> Self {
+        Self {
+            error_type,
+            location: None,
         }
     }
 }
@@ -75,7 +84,6 @@ impl Environment {
             } else {
                 Err(RuntimeError::new(
                     RuntimeErrorType::UndefinedVariable(name),
-                    Location::initial(),
                 ))
                 // TODO: Actual location
             }
@@ -94,7 +102,6 @@ impl Environment {
         maybe_value.ok_or_else(|| {
             RuntimeError::new(
                 RuntimeErrorType::UndefinedVariable(name.to_string()),
-                Location::initial(),
             )
         })
     }
@@ -141,7 +148,7 @@ impl Interpreter {
             }
             Stmt::Print(expr) => {
                 let val = self.evaluate(expr)?;
-                println!("{:?}", val);
+                println!("{}", val.lox_string());
                 Ok(val)
             }
             Stmt::Var(name, initializer) => {
@@ -185,6 +192,14 @@ impl Interpreter {
                     )),
                 );
                 Ok(Value::Nil)
+            }
+            Stmt::Return(expr) => {
+                let val = if let Some(expr) = expr {
+                    self.evaluate(expr)?
+                } else {
+                    Value::Nil
+                };
+                Err(RuntimeError::new(Return(val)))
             }
         }
     }
@@ -234,9 +249,14 @@ impl Interpreter {
                 }
 
                 let function = calee.require_callable().ok_or_else(|| {
-                    RuntimeError::new(RuntimeErrorType::WrongType, Location::initial())
+                    RuntimeError::new(RuntimeErrorType::WrongType)
                 })?;
-                function.call( arguments, self)
+
+                match function.call( arguments, self) {
+                    Ok(value) => Ok(value),
+                    Err(RuntimeError { error_type: Return(value), ..}) => Ok(value),
+                    Err(err) => Err(err),
+                }
             }
         }
     }
@@ -286,8 +306,7 @@ impl Interpreter {
                 Value::String(left) => Ok(Value::String(left + &*require_string(&right)?)),
                 // TODO: proper location
                 _ => Err(RuntimeError::new(
-                    RuntimeErrorType::WrongOperator,
-                    Location::initial(),
+                    RuntimeErrorType::WrongOperator
                 )),
             },
             BinaryOperator::Subtract => Ok(Value::Number(
@@ -302,8 +321,7 @@ impl Interpreter {
                 if right == 0.0 {
                     // TODO: proper location
                     Err(RuntimeError::new(
-                        RuntimeErrorType::DivideByZero,
-                        Location::initial(),
+                        RuntimeErrorType::DivideByZero
                     ))
                 } else {
                     Ok(Value::Number(left / right))
@@ -324,19 +342,19 @@ impl Interpreter {
 fn require_string(val: &Value) -> Result<String> {
     // TODO: proper location
     val.require_string()
-        .ok_or_else(|| RuntimeError::new(RuntimeErrorType::WrongType, Location::initial()))
+        .ok_or_else(|| RuntimeError::new(RuntimeErrorType::WrongType))
 }
 
 fn require_number(val: &Value) -> Result<f64> {
     // TODO: proper location
     val.require_number()
-        .ok_or_else(|| RuntimeError::new(RuntimeErrorType::WrongType, Location::initial()))
+        .ok_or_else(|| RuntimeError::new(RuntimeErrorType::WrongType))
 }
 
 fn require_boolean(val: &Value) -> Result<bool> {
     // TODO: proper location
     val.require_boolean()
-        .ok_or_else(|| RuntimeError::new(RuntimeErrorType::WrongType, Location::initial()))
+        .ok_or_else(|| RuntimeError::new(RuntimeErrorType::WrongType))
 }
 
 fn booleanize(val: &Value) -> bool {
@@ -357,7 +375,6 @@ fn compare(left: Value, right: Value, f: impl Fn(Ordering) -> bool) -> Result<Va
             left.partial_cmp(&right).ok_or_else(|| {
                 RuntimeError::new(
                     RuntimeErrorType::NumberComparisonError(left, right),
-                    Location::initial(),
                 )
             })
             // TODO: actual location
@@ -366,7 +383,6 @@ fn compare(left: Value, right: Value, f: impl Fn(Ordering) -> bool) -> Result<Va
         Value::Boolean(left) => Ok(left.cmp(&require_boolean(&right)?)),
         _ => Err(RuntimeError::new(
             RuntimeErrorType::WrongType,
-            Location::initial(),
         )), // TODO: actual location
     }?;
 

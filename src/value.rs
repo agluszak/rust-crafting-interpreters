@@ -10,6 +10,14 @@ pub struct Callable {
     pub func: Rc<dyn Fn(Vec<Value>, &mut Interpreter) -> Result<Value, RuntimeError>>,
 }
 
+// TODO
+#[allow(clippy::ptr_eq)]
+impl PartialEq for Callable {
+    fn eq(&self, other: &Self) -> bool {
+        self.name == other.name && self.arity == other.arity && &self.func as *const _ == &other.func as *const _
+    }
+}
+
 impl Debug for Callable {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.name)
@@ -29,7 +37,7 @@ impl Callable {
             }),
         }
     }
-    
+
     pub fn new_native(name: String, arity: usize, func: Rc<dyn Fn(Vec<Value>, &mut Interpreter) -> Result<Value, RuntimeError>>) -> Self {
         Self {
             name,
@@ -43,7 +51,7 @@ impl Callable {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Value {
     Nil,
     Number(f64),
@@ -53,6 +61,16 @@ pub enum Value {
 }
 
 impl Value {
+    pub fn lox_string(&self) -> String {
+        match self {
+            Value::Nil => "nil".to_string(),
+            Value::Number(n) => n.to_string(),
+            Value::String(s) => format!("\"{}\"", s.clone()),
+            Value::Boolean(b) => b.to_string(),
+            Value::Callable(c) => format!("<function {}({})>", c.name, c.arity),
+        }
+    }
+
     pub fn require_boolean(&self) -> Option<bool> {
         if let Value::Boolean(b) = self {
             Some(*b)
