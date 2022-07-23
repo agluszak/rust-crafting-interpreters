@@ -2,16 +2,15 @@ use std::env;
 use std::process::exit;
 
 use crate::runner::{Runner, RunnerError};
-use crate::runner::RunnerError::ScannerError;
 
 mod expr;
 mod interpreter;
 mod parser;
 mod runner;
 mod scanner;
+mod stmt;
 mod token;
 mod value;
-mod stmt;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -23,9 +22,10 @@ fn main() {
     } else if args.len() == 2 {
         match runner.run_file(&args[1]) {
             Ok(_) => exit(0),
-            Err(RunnerError::ScannerError(_)) => exit(65), // TODO: correct exit codes
-            Err(RunnerError::ParserError(_)) => exit(66),
-            Err(RunnerError::RuntimeError(_)) => exit(67)
+            Err(err) => {
+                println!("{:?}", err);
+                exit(1);
+            }
         }
     } else {
         runner.run_prompt();

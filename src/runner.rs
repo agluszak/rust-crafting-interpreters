@@ -33,14 +33,19 @@ impl Runner {
 
     pub fn run(&mut self, source: String) -> Result<()> {
         self.scanner.append(source);
-        let tokens = self.scanner.scan_tokens().map_err(&RunnerError::ScannerError)?;
+        let tokens = self
+            .scanner
+            .scan_tokens()
+            .map_err(&RunnerError::ScannerError)?;
         // println!("{:#?}", tokens);
 
         self.parser.append(tokens);
         let ast = self.parser.program().map_err(&RunnerError::ParserError)?;
         println!("{:#?}", ast);
 
-        self.interpreter.interpret(&ast).map_err(&RunnerError::RuntimeError)
+        self.interpreter
+            .interpret(&ast)
+            .map_err(&RunnerError::RuntimeError)
     }
 
     pub fn run_file(&mut self, path: &str) -> Result<()> {

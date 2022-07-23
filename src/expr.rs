@@ -8,6 +8,7 @@ pub enum ExprType {
     Unary(UnaryOperator, Box<Expr>),
     Variable(String),
     Assign(String, Box<Expr>),
+    Call(Box<Expr>, Vec<Expr>),
 }
 
 #[derive(Debug, PartialEq, Clone)]

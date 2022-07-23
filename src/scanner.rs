@@ -3,8 +3,8 @@ use std::string::String;
 use phf::phf_map;
 
 use crate::scanner::ScannerError::{BadCharacter, NumberParsing, UnclosedString};
-use crate::token::{Location, Token, TokenType};
 use crate::token::TokenType::*;
+use crate::token::{Location, Token, TokenType};
 
 use self::hidden::CharReader;
 
@@ -42,15 +42,13 @@ mod hidden {
     use crate::token::Location;
 
     // based on https://github.com/toyboot4e/loxrs/blob/master/loxrs_treewalk/src/lexer/scanner.rs
-    pub struct CharReader
-    {
+    pub struct CharReader {
         src: VecDeque<char>,
         location: Location,
         lexeme: String,
     }
 
-    impl Iterator for CharReader
-    {
+    impl Iterator for CharReader {
         type Item = char;
         fn next(&mut self) -> Option<char> {
             let next = self.src.pop_front();
@@ -70,8 +68,7 @@ mod hidden {
         }
     }
 
-    impl CharReader
-    {
+    impl CharReader {
         pub fn new() -> Self {
             CharReader {
                 src: VecDeque::new(),
@@ -112,8 +109,8 @@ mod hidden {
 
         /// Advances while the peek matches `predicate`; peeks char by char
         pub fn advance_while<P>(&mut self, predicate: P) -> bool
-            where
-                P: Fn(char) -> bool,
+        where
+            P: Fn(char) -> bool,
         {
             while let Some(&c) = self.peek() {
                 if !predicate(c) {
@@ -121,7 +118,7 @@ mod hidden {
                 }
                 self.next();
             }
-            return false;
+            false
         }
     }
 }
@@ -243,7 +240,7 @@ impl Scanner {
         KEYWORDS
             .get(text)
             .cloned()
-            .unwrap_or(Identifier(text.to_string()))
+            .unwrap_or_else(|| Identifier(text.to_string()))
     }
 
     fn number(&mut self) -> Result<TokenType> {
@@ -281,10 +278,10 @@ impl Scanner {
 
 #[cfg(test)]
 mod tests {
-    use crate::scanner::{Scanner, ScannerError};
     use crate::scanner::ScannerError::{BadCharacter, UnclosedString};
-    use crate::token::{Location, Token};
+    use crate::scanner::{Scanner, ScannerError};
     use crate::token::TokenType::*;
+    use crate::token::{Location, Token};
     use std::fmt::Debug;
 
     fn compare_vecs<T: Debug + PartialEq>(expected: Vec<T>, actual: Vec<T>) {
@@ -304,7 +301,7 @@ mod tests {
             Ok(expected) => {
                 assert!(result.is_ok());
                 let actual = result.unwrap();
-               compare_vecs(expected, actual);
+                compare_vecs(expected, actual);
             }
             Err(expected) => {
                 assert!(result.is_err());
@@ -318,23 +315,35 @@ mod tests {
     fn simple_test() {
         static SOURCE: &str = r#"var _how_are_you = "good";
 // this is a comment
-var       num = 2 + 3.14;
+var       num = 2 + 3.1;
 if (true or false) { print _how_are_you; }
 "#;
 
         let expected_tokens = vec![
             Token::new(Var, "var".to_string(), Location::new(1, 1)),
-            Token::new(Identifier("_how_are_you".to_string()), "_how_are_you".to_string(), Location::new(1, 5)),
+            Token::new(
+                Identifier("_how_are_you".to_string()),
+                "_how_are_you".to_string(),
+                Location::new(1, 5),
+            ),
             Token::new(Equal, "=".to_string(), Location::new(1, 18)),
-            Token::new(String("good".to_string()), "\"good\"".to_string(), Location::new(1, 20)),
+            Token::new(
+                String("good".to_string()),
+                "\"good\"".to_string(),
+                Location::new(1, 20),
+            ),
             Token::new(Semicolon, ";".to_string(), Location::new(1, 26)),
             Token::new(Var, "var".to_string(), Location::new(3, 1)),
-            Token::new(Identifier("num".to_string()), "num".to_string(), Location::new(3, 11)),
+            Token::new(
+                Identifier("num".to_string()),
+                "num".to_string(),
+                Location::new(3, 11),
+            ),
             Token::new(Equal, "=".to_string(), Location::new(3, 15)),
             Token::new(Number(2.0), "2".to_string(), Location::new(3, 17)),
             Token::new(Plus, "+".to_string(), Location::new(3, 19)),
-            Token::new(Number(3.14), "3.14".to_string(), Location::new(3, 21)),
-            Token::new(Semicolon, ";".to_string(), Location::new(3, 25)),
+            Token::new(Number(3.1), "3.1".to_string(), Location::new(3, 21)),
+            Token::new(Semicolon, ";".to_string(), Location::new(3, 24)),
             Token::new(If, "if".to_string(), Location::new(4, 1)),
             Token::new(LeftParen, "(".to_string(), Location::new(4, 4)),
             Token::new(True, "true".to_string(), Location::new(4, 5)),
@@ -343,7 +352,11 @@ if (true or false) { print _how_are_you; }
             Token::new(RightParen, ")".to_string(), Location::new(4, 18)),
             Token::new(LeftBrace, "{".to_string(), Location::new(4, 20)),
             Token::new(Print, "print".to_string(), Location::new(4, 22)),
-            Token::new(Identifier("_how_are_you".to_string()), "_how_are_you".to_string(), Location::new(4, 28)),
+            Token::new(
+                Identifier("_how_are_you".to_string()),
+                "_how_are_you".to_string(),
+                Location::new(4, 28),
+            ),
             Token::new(Semicolon, ";".to_string(), Location::new(4, 40)),
             Token::new(RightBrace, "}".to_string(), Location::new(4, 42)),
         ];
@@ -387,7 +400,11 @@ if (true or false) { print _how_are_you; }
             Token::new(Number(3.0), "3".to_string(), Location::new(1, 5)),
             Token::new(Slash, "/".to_string(), Location::new(2, 1)),
             Token::new(Slash, "/".to_string(), Location::new(2, 3)),
-            Token::new(Identifier("not_a_comment".to_string()), "not_a_comment".to_string(), Location::new(2, 5)),
+            Token::new(
+                Identifier("not_a_comment".to_string()),
+                "not_a_comment".to_string(),
+                Location::new(2, 5),
+            ),
         ];
 
         scanner_test(SOURCE, Ok(expected_tokens))
@@ -430,47 +447,89 @@ for (var b = 1; a < 10000; b = temp + b) {
 
         let expected_tokens = vec![
             Token::new(Var, "var".to_string(), Location::new(1, 1)),
-            Token::new(Identifier("a".to_string()), "a".to_string(), Location::new(1, 5)),
+            Token::new(
+                Identifier("a".to_string()),
+                "a".to_string(),
+                Location::new(1, 5),
+            ),
             Token::new(Equal, "=".to_string(), Location::new(1, 7)),
-            Token::new(Number(
-                0.0,
-            ), "0".to_string(), Location::new(1, 9)),
+            Token::new(Number(0.0), "0".to_string(), Location::new(1, 9)),
             Token::new(Semicolon, ";".to_string(), Location::new(1, 10)),
             Token::new(Var, "var".to_string(), Location::new(2, 1)),
-            Token::new(Identifier("temp".to_string()), "temp".to_string(), Location::new(2, 5)),
+            Token::new(
+                Identifier("temp".to_string()),
+                "temp".to_string(),
+                Location::new(2, 5),
+            ),
             Token::new(Semicolon, ";".to_string(), Location::new(2, 9)),
             Token::new(For, "for".to_string(), Location::new(4, 1)),
             Token::new(LeftParen, "(".to_string(), Location::new(4, 5)),
             Token::new(Var, "var".to_string(), Location::new(4, 6)),
-            Token::new(Identifier("b".to_string()), "b".to_string(), Location::new(4, 10)),
+            Token::new(
+                Identifier("b".to_string()),
+                "b".to_string(),
+                Location::new(4, 10),
+            ),
             Token::new(Equal, "=".to_string(), Location::new(4, 12)),
-            Token::new(Number(
-                1.0,
-            ), "1".to_string(), Location::new(4, 14)),
+            Token::new(Number(1.0), "1".to_string(), Location::new(4, 14)),
             Token::new(Semicolon, ";".to_string(), Location::new(4, 15)),
-            Token::new(Identifier("a".to_string()), "a".to_string(), Location::new(4, 17)),
+            Token::new(
+                Identifier("a".to_string()),
+                "a".to_string(),
+                Location::new(4, 17),
+            ),
             Token::new(Less, "<".to_string(), Location::new(4, 19)),
-            Token::new(Number(
-                10000.0,
-            ), "10000".to_string(), Location::new(4, 21)),
+            Token::new(Number(10000.0), "10000".to_string(), Location::new(4, 21)),
             Token::new(Semicolon, ";".to_string(), Location::new(4, 26)),
-            Token::new(Identifier("b".to_string()), "b".to_string(), Location::new(4, 28)),
+            Token::new(
+                Identifier("b".to_string()),
+                "b".to_string(),
+                Location::new(4, 28),
+            ),
             Token::new(Equal, "=".to_string(), Location::new(4, 30)),
-            Token::new(Identifier("temp".to_string()), "temp".to_string(), Location::new(4, 32)),
+            Token::new(
+                Identifier("temp".to_string()),
+                "temp".to_string(),
+                Location::new(4, 32),
+            ),
             Token::new(Plus, "+".to_string(), Location::new(4, 37)),
-            Token::new(Identifier("b".to_string()), "b".to_string(), Location::new(4, 39)),
+            Token::new(
+                Identifier("b".to_string()),
+                "b".to_string(),
+                Location::new(4, 39),
+            ),
             Token::new(RightParen, ")".to_string(), Location::new(4, 40)),
             Token::new(LeftBrace, "{".to_string(), Location::new(4, 42)),
             Token::new(Print, "print".to_string(), Location::new(5, 3)),
-            Token::new(Identifier("a".to_string()), "a".to_string(), Location::new(5, 9)),
+            Token::new(
+                Identifier("a".to_string()),
+                "a".to_string(),
+                Location::new(5, 9),
+            ),
             Token::new(Semicolon, ";".to_string(), Location::new(5, 10)),
-            Token::new(Identifier("temp".to_string()), "temp".to_string(), Location::new(6, 3)),
+            Token::new(
+                Identifier("temp".to_string()),
+                "temp".to_string(),
+                Location::new(6, 3),
+            ),
             Token::new(Equal, "=".to_string(), Location::new(6, 8)),
-            Token::new(Identifier("a".to_string()), "a".to_string(), Location::new(6, 10)),
+            Token::new(
+                Identifier("a".to_string()),
+                "a".to_string(),
+                Location::new(6, 10),
+            ),
             Token::new(Semicolon, ";".to_string(), Location::new(6, 11)),
-            Token::new(Identifier("a".to_string()), "a".to_string(), Location::new(7, 3)),
+            Token::new(
+                Identifier("a".to_string()),
+                "a".to_string(),
+                Location::new(7, 3),
+            ),
             Token::new(Equal, "=".to_string(), Location::new(7, 5)),
-            Token::new(Identifier("b".to_string()), "b".to_string(), Location::new(7, 7)),
+            Token::new(
+                Identifier("b".to_string()),
+                "b".to_string(),
+                Location::new(7, 7),
+            ),
             Token::new(Semicolon, ";".to_string(), Location::new(7, 8)),
             Token::new(RightBrace, "}".to_string(), Location::new(8, 1)),
         ];

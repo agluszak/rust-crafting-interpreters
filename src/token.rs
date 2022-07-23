@@ -95,7 +95,7 @@ impl TokenType {
     pub fn to_variable(&self) -> String {
         match &self {
             TokenType::Identifier(name) => name.clone(),
-            _ => unreachable!()
+            _ => unreachable!(),
         }
     }
 }
@@ -114,6 +114,13 @@ impl Token {
             lexeme,
             location,
         }
+    }
+
+    pub fn end_location(&self) -> Location {
+        Location::new(
+            self.location.line(),
+            self.location.column() + self.lexeme.chars().count(),
+        )
     }
 }
 

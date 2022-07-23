@@ -1,17 +1,63 @@
+use std::fmt::Debug;
+use std::rc::Rc;
+use crate::interpreter::{Interpreter, RuntimeError};
+use crate::stmt::Stmt;
+
+#[derive(Clone)]
+pub struct Callable {
+    pub name: String,
+    pub arity: usize,
+    pub func: Rc<dyn Fn(Vec<Value>, &mut Interpreter) -> Result<Value, RuntimeError>>,
+}
+
+impl Debug for Callable {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.name)
+    }
+}
+
+impl Callable {
+    pub fn from_definition(name: String, params: Vec<String>, body: Vec<Stmt>) -> Self {
+        Self {
+            name,
+            arity: params.len(),
+            func: Rc::new(move |args, interpreter: &mut Interpreter| {
+                for (param, arg) in params.iter().zip(args) {
+                    interpreter.define(param.clone(), arg);
+                }
+                interpreter.interpret(&body).map(|_| Value::Nil)
+            }),
+        }
+    }
+    
+    pub fn new_native(name: String, arity: usize, func: Rc<dyn Fn(Vec<Value>, &mut Interpreter) -> Result<Value, RuntimeError>>) -> Self {
+        Self {
+            name,
+            arity,
+            func,
+        }
+    }
+
+    pub fn call(&self, args: Vec<Value>, interpreter: &mut Interpreter) -> Result<Value, RuntimeError> {
+        (self.func)(args, interpreter)
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum Value {
     Nil,
     Number(f64),
     String(String),
     Boolean(bool),
+    Callable(Callable),
 }
 
 impl Value {
     pub fn require_boolean(&self) -> Option<bool> {
         if let Value::Boolean(b) = self {
-            return Some(*b);
+            Some(*b)
         } else {
-            return None;
+            None
         }
     }
 
@@ -34,6 +80,14 @@ impl Value {
     pub fn require_nil(&self) -> Option<()> {
         if let Value::Nil = self {
             Some(())
+        } else {
+            None
+        }
+    }
+
+    pub fn require_callable(&self) -> Option<Callable> {
+        if let Value::Callable(c) = self {
+            Some(c.clone())
         } else {
             None
         }
