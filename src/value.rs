@@ -1,7 +1,7 @@
-use std::fmt::Debug;
-use std::rc::Rc;
 use crate::interpreter::{Interpreter, RuntimeError};
 use crate::stmt::Stmt;
+use std::fmt::Debug;
+use std::rc::Rc;
 
 #[derive(Clone)]
 pub struct Callable {
@@ -14,7 +14,9 @@ pub struct Callable {
 #[allow(clippy::ptr_eq)]
 impl PartialEq for Callable {
     fn eq(&self, other: &Self) -> bool {
-        self.name == other.name && self.arity == other.arity && &self.func as *const _ == &other.func as *const _
+        self.name == other.name
+            && self.arity == other.arity
+            && &self.func as *const _ == &other.func as *const _
     }
 }
 
@@ -38,15 +40,19 @@ impl Callable {
         }
     }
 
-    pub fn new_native(name: String, arity: usize, func: Rc<dyn Fn(Vec<Value>, &mut Interpreter) -> Result<Value, RuntimeError>>) -> Self {
-        Self {
-            name,
-            arity,
-            func,
-        }
+    pub fn new_native(
+        name: String,
+        arity: usize,
+        func: Rc<dyn Fn(Vec<Value>, &mut Interpreter) -> Result<Value, RuntimeError>>,
+    ) -> Self {
+        Self { name, arity, func }
     }
 
-    pub fn call(&self, args: Vec<Value>, interpreter: &mut Interpreter) -> Result<Value, RuntimeError> {
+    pub fn call(
+        &self,
+        args: Vec<Value>,
+        interpreter: &mut Interpreter,
+    ) -> Result<Value, RuntimeError> {
         (self.func)(args, interpreter)
     }
 }

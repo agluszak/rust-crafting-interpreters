@@ -36,20 +36,20 @@ impl Runner {
         let tokens = self
             .scanner
             .scan_tokens()
-            .map_err(&RunnerError::ScannerError)?;
+            .map_err(RunnerError::ScannerError)?;
         // println!("{:#?}", tokens);
 
         self.parser.append(tokens);
-        let ast = self.parser.program().map_err(&RunnerError::ParserError)?;
+        let ast = self.parser.program().map_err(RunnerError::ParserError)?;
         println!("{:#?}", ast);
 
         self.interpreter
             .interpret(&ast)
-            .map_err(&RunnerError::RuntimeError)
+            .map_err(RunnerError::RuntimeError)
     }
 
     pub fn run_file(&mut self, path: &str) -> Result<()> {
-        let contents = read_to_string(path).expect(&*("Could not read file ".to_string() + path));
+        let contents = read_to_string(path).unwrap_or_else(|_| panic!("{}", ("Could not read file ".to_string() + path)));
         self.run(contents)
     }
 

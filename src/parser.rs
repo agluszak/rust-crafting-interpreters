@@ -192,17 +192,17 @@ impl Parser {
     }
 
     fn or(&mut self) -> Result<Expr> {
-        self.parse_binary_operation(&[TokenType::Or], &Self::and)
+        self.parse_binary_operation(&[TokenType::Or], Self::and)
     }
 
     fn and(&mut self) -> Result<Expr> {
-        self.parse_binary_operation(&[TokenType::And], &Self::equality)
+        self.parse_binary_operation(&[TokenType::And], Self::equality)
     }
 
     fn equality(&mut self) -> Result<Expr> {
         self.parse_binary_operation(
             &[TokenType::BangEqual, TokenType::EqualEqual],
-            &Self::comparison,
+            Self::comparison,
         )
     }
 
@@ -214,20 +214,20 @@ impl Parser {
                 TokenType::Less,
                 TokenType::LessEqual,
             ],
-            &Self::term,
+            Self::term,
         )
     }
 
     fn term(&mut self) -> Result<Expr> {
-        self.parse_binary_operation(&[TokenType::Minus, TokenType::Plus], &Self::factor)
+        self.parse_binary_operation(&[TokenType::Minus, TokenType::Plus], Self::factor)
     }
 
     fn factor(&mut self) -> Result<Expr> {
-        self.parse_binary_operation(&[TokenType::Star, TokenType::Slash], &Self::unary)
+        self.parse_binary_operation(&[TokenType::Star, TokenType::Slash], Self::unary)
     }
 
     fn unary(&mut self) -> Result<Expr> {
-        self.parse_unary_operation(&[TokenType::Minus, TokenType::Bang], &Self::call)
+        self.parse_unary_operation(&[TokenType::Minus, TokenType::Bang], Self::call)
     }
 
     fn call(&mut self) -> Result<Expr> {
@@ -242,7 +242,7 @@ impl Parser {
 
     fn finish_call(&mut self, callee: Expr) -> Result<Expr> {
         let mut arguments = Vec::new();
-        let right_paren = if let Some(right_paren) = self.consume_token(TokenType::RightParen) {
+        let _right_paren = if let Some(right_paren) = self.consume_token(TokenType::RightParen) {
             right_paren
         } else {
             loop {
@@ -312,7 +312,7 @@ impl Parser {
 
     // TODO: Clean up logic
     fn declaration(&mut self) -> Result<Option<Stmt>> {
-        let stmt =  if self.consume_token(TokenType::Fun).is_some() {
+        let stmt = if self.consume_token(TokenType::Fun).is_some() {
             self.function()
         } else if self.consume_token(TokenType::Var).is_some() {
             self.var_declaration()
@@ -355,14 +355,11 @@ impl Parser {
         self.consume_token_expect(TokenType::RightParen)?;
         self.consume_token_expect(TokenType::LeftBrace)?;
         let block = self.block()?;
-        Ok(Some(
-            Stmt::Function(
-                name.token_type.to_variable(),
-                parameters,
-                block,
-            ),
-        ))
-
+        Ok(Some(Stmt::Function(
+            name.token_type.to_variable(),
+            parameters,
+            block,
+        )))
     }
 
     fn var_declaration(&mut self) -> Result<Option<Stmt>> {
@@ -630,7 +627,11 @@ mod tests {
     #[test]
     fn function_call_no_args() {
         let tokens = vec![
-            Token::new(Identifier("add".to_string()), "add".to_string(), Location::new(1, 1)),
+            Token::new(
+                Identifier("add".to_string()),
+                "add".to_string(),
+                Location::new(1, 1),
+            ),
             Token::new(LeftParen, "(".to_string(), Location::new(1, 5)),
             Token::new(RightParen, ")".to_string(), Location::new(1, 6)),
             Token::new(Semicolon, ";".to_string(), Location::new(1, 7)),

@@ -1,7 +1,7 @@
 use std::env;
 use std::process::exit;
 
-use crate::runner::{Runner, RunnerError};
+use crate::runner::Runner;
 
 mod expr;
 mod interpreter;

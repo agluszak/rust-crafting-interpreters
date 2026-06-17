@@ -19,7 +19,7 @@ pub enum RuntimeErrorType {
     DivideByZero,
     WrongOperator,
     UndefinedVariable(String),
-    Return(Value)
+    Return(Value),
 }
 
 #[derive(Debug, PartialEq)]
@@ -75,16 +75,14 @@ impl Environment {
     }
 
     fn assign(&mut self, name: String, value: Value) -> Result<()> {
-        if self.is_defined(&*name) {
+        if self.is_defined(&name) {
             self.values.insert(name, value);
             Ok(())
         } else {
             if let Some(enclosing) = &self.enclosing {
                 enclosing.borrow_mut().assign(name, value)
             } else {
-                Err(RuntimeError::new(
-                    RuntimeErrorType::UndefinedVariable(name),
-                ))
+                Err(RuntimeError::new(RuntimeErrorType::UndefinedVariable(name)))
                 // TODO: Actual location
             }
         }
@@ -99,11 +97,8 @@ impl Environment {
             maybe_value
         };
         // TODO: proper location
-        maybe_value.ok_or_else(|| {
-            RuntimeError::new(
-                RuntimeErrorType::UndefinedVariable(name.to_string()),
-            )
-        })
+        maybe_value
+            .ok_or_else(|| RuntimeError::new(RuntimeErrorType::UndefinedVariable(name.to_string())))
     }
 }
 
@@ -114,11 +109,21 @@ pub struct Interpreter {
 impl Interpreter {
     pub fn new() -> Self {
         let mut env = Environment::global();
-        env.define("clock".to_string(), Value::Callable(Callable::new_native(
+        env.define(
             "clock".to_string(),
-            0,
-            Rc::new(|_, _| Ok(Value::Number(SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs_f64()))),
-        )));
+            Value::Callable(Callable::new_native(
+                "clock".to_string(),
+                0,
+                Rc::new(|_, _| {
+                    Ok(Value::Number(
+                        SystemTime::now()
+                            .duration_since(UNIX_EPOCH)
+                            .unwrap()
+                            .as_secs_f64(),
+                    ))
+                }),
+            )),
+        );
         Self {
             environment: Rc::new(RefCell::new(env)),
         }
@@ -168,9 +173,9 @@ impl Interpreter {
                 let mut value = Value::Nil;
 
                 if booleanize(&condition) {
-                    value = self.execute(&**then_branch)?;
+                    value = self.execute(then_branch)?;
                 } else if let Some(else_branch) = else_branch {
-                    value = self.execute(&**else_branch)?;
+                    value = self.execute(else_branch)?;
                 }
 
                 Ok(value)
@@ -232,9 +237,9 @@ impl Interpreter {
             ExprType::Grouping(expr) => self.evaluate(expr),
             ExprType::Literal(literal) => Self::evaluate_literal(literal),
             ExprType::Unary(op, expr) => self.evaluate_unary(op, expr),
-            ExprType::Variable(name) => self.environment.borrow().get(&*name),
+            ExprType::Variable(name) => self.environment.borrow().get(name),
             ExprType::Assign(variable, expr) => {
-                let value = self.evaluate(&*expr)?;
+                let value = self.evaluate(expr)?;
                 self.environment
                     .borrow_mut()
                     .assign(variable.clone(), value.clone())?;
@@ -248,13 +253,16 @@ impl Interpreter {
                     arguments.push(argument);
                 }
 
-                let function = calee.require_callable().ok_or_else(|| {
-                    RuntimeError::new(RuntimeErrorType::WrongType)
-                })?;
+                let function = calee
+                    .require_callable()
+                    .ok_or_else(|| RuntimeError::new(RuntimeErrorType::WrongType))?;
 
-                match function.call( arguments, self) {
+                match function.call(arguments, self) {
                     Ok(value) => Ok(value),
-                    Err(RuntimeError { error_type: Return(value), ..}) => Ok(value),
+                    Err(RuntimeError {
+                        error_type: Return(value),
+                        ..
+                    }) => Ok(value),
                     Err(err) => Err(err),
                 }
             }
@@ -274,9 +282,9 @@ impl Interpreter {
         let val = self.evaluate(expr)?;
         match op {
             UnaryOperator::BooleanNegate => {
-                require_boolean(&val).map(&bool::not).map(&Value::Boolean)
+                require_boolean(&val).map(bool::not).map(Value::Boolean)
             }
-            UnaryOperator::NumericNegate => require_number(&val).map(&f64::neg).map(&Value::Number),
+            UnaryOperator::NumericNegate => require_number(&val).map(f64::neg).map(Value::Number),
         }
     }
 
@@ -305,9 +313,7 @@ impl Interpreter {
                 Value::Number(left) => Ok(Value::Number(left + require_number(&right)?)),
                 Value::String(left) => Ok(Value::String(left + &*require_string(&right)?)),
                 // TODO: proper location
-                _ => Err(RuntimeError::new(
-                    RuntimeErrorType::WrongOperator
-                )),
+                _ => Err(RuntimeError::new(RuntimeErrorType::WrongOperator)),
             },
             BinaryOperator::Subtract => Ok(Value::Number(
                 require_number(&left)? + require_number(&right)?,
@@ -320,19 +326,17 @@ impl Interpreter {
                 let right = require_number(&right)?;
                 if right == 0.0 {
                     // TODO: proper location
-                    Err(RuntimeError::new(
-                        RuntimeErrorType::DivideByZero
-                    ))
+                    Err(RuntimeError::new(RuntimeErrorType::DivideByZero))
                 } else {
                     Ok(Value::Number(left / right))
                 }
             }
-            BinaryOperator::Less => compare(left, right, &Ordering::is_lt),
-            BinaryOperator::LessEqual => compare(left, right, &Ordering::is_le),
-            BinaryOperator::Greater => compare(left, right, &Ordering::is_gt),
-            BinaryOperator::GreaterEqual => compare(left, right, &Ordering::is_ge),
-            BinaryOperator::Equal => compare(left, right, &Ordering::is_eq),
-            BinaryOperator::NotEqual => compare(left, right, &Ordering::is_ne),
+            BinaryOperator::Less => compare(left, right, Ordering::is_lt),
+            BinaryOperator::LessEqual => compare(left, right, Ordering::is_le),
+            BinaryOperator::Greater => compare(left, right, Ordering::is_gt),
+            BinaryOperator::GreaterEqual => compare(left, right, Ordering::is_ge),
+            BinaryOperator::Equal => compare(left, right, Ordering::is_eq),
+            BinaryOperator::NotEqual => compare(left, right, Ordering::is_ne),
             BinaryOperator::And => unreachable!(),
             BinaryOperator::Or => unreachable!(),
         }
@@ -373,17 +377,13 @@ fn compare(left: Value, right: Value, f: impl Fn(Ordering) -> bool) -> Result<Va
         Value::Number(left) => {
             let right = require_number(&right)?;
             left.partial_cmp(&right).ok_or_else(|| {
-                RuntimeError::new(
-                    RuntimeErrorType::NumberComparisonError(left, right),
-                )
+                RuntimeError::new(RuntimeErrorType::NumberComparisonError(left, right))
             })
             // TODO: actual location
         }
         Value::String(left) => Ok(left.cmp(&require_string(&right)?)),
         Value::Boolean(left) => Ok(left.cmp(&require_boolean(&right)?)),
-        _ => Err(RuntimeError::new(
-            RuntimeErrorType::WrongType,
-        )), // TODO: actual location
+        _ => Err(RuntimeError::new(RuntimeErrorType::WrongType)), // TODO: actual location
     }?;
 
     Ok(Value::Boolean(f(ordering)))
